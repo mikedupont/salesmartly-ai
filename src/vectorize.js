@@ -16,6 +16,28 @@ function normalizeVectorMatch(match) {
   };
 }
 
+async function buildVectorId({ chatUserId, sourceType, sourceId, sourceText }) {
+  const encoder = new TextEncoder();
+  const raw = [
+    cleanText(chatUserId || "user") || "user",
+    cleanText(sourceType || "memory") || "memory",
+    cleanText(sourceId || ""),
+    cleanText(sourceText || ""),
+  ].join("|");
+
+  const bytes = encoder.encode(raw);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", bytes);
+  const hashBytes = new Uint8Array(hashBuffer);
+  const hashHex = [...hashBytes].slice(0, 12).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const typePrefix = (cleanText(sourceType || "memory") || "memory")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 12) || "memory";
+
+  return `${typePrefix}:${hashHex}`;
+}
+
 export async function getRelevantVectorMemories(env, { chatUserId, queryText, limit = VECTOR_MEMORY_LIMIT, embeddingFn }) {
   return await getRelevantVectorMemoriesByTexts(env, {
     chatUserId,
@@ -91,14 +113,8 @@ export async function upsertVectorMemory({
   const embedding = await embeddingFn(text);
   if (!Array.isArray(embedding) || embedding.length === 0) return null;
 
-  const idParts = [
-    cleanText(chatUserId || "user") || "user",
-    cleanText(sourceType || "memory") || "memory",
-    cleanText(sourceId || "") || crypto.randomUUID(),
-  ];
-
   const vector = {
-    id: idParts.join(":"),
+    id: await buildVectorId({ chatUserId, sourceType, sourceId, sourceText: text }),
     values: embedding,
     metadata: {
       chat_user_id: chatUserId,
