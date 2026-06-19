@@ -1,0 +1,21 @@
+name = "salesmartly-ai"
+main = "src/worker.js"
+account_id = "11146d7c0fe279f0fa9ed8be88f9d436"
+compatibility_date = "2026-06-17"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "salesmartly-ai-db"
+database_id = "0b3314a6-2246-4381-923e-593c5035ccbe"
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "salesmartly-ai-memory"
+
+[vars]
+AUTO_REPLY = "true"
+OPENAI_MODEL = "gpt-4o-mini"
+SALESMARTLY_REPLY_URL = "https://msg.salesmartly.com/ai-employee/send-message"
+
+[triggers]
+crons = ["0 17 * * *"]
