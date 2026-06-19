@@ -47,11 +47,6 @@
 - 支持 `/admin/training/annotate` 标注写回
 - 支持 `/admin/training/purge` 训练数据清空
 - 支持 `/health` 监控快照
-- 已引入 FlirtFlip 风格迁移数据并生成种子 / 清洗版
-  - `data/flirtflip_seed_sft.jsonl`
-  - `data/flirtflip_seed_dpo.jsonl`
-  - `data/flirtflip_final_sft.jsonl`
-  - `data/flirtflip_final_dpo.jsonl`
 - 已支持 FlirtFlip 线上查看 / 导入 / 导出
   - `/admin/flirtflip`
   - `/admin/flirtflip/export`
@@ -62,11 +57,10 @@
   - `/admin/empathetic/export`
   - `/admin/empathetic/import`
   - `/admin/empathetic/sync`
-- 已补充 FlirtFlip 生成与清洗脚本
+- 已补充 FlirtFlip 在线同步脚本
   - `scripts/generate_flirtflip_seeds.mjs`
-  - `scripts/clean_flirtflip_seeds.mjs`
   - `scripts/import_flirtflip_online.mjs`
-- 已补充 EmpatheticDialogues 生成与导入脚本
+- 已补充 EmpatheticDialogues 在线同步脚本
   - `scripts/generate_empathetic_dialogues_seed.py`
   - `scripts/import_empathetic_dialogues_online.mjs`
 

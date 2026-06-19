@@ -1,15 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const DATA_DIR = path.join(ROOT, "data");
 const SOURCE_URL = "https://huggingface.co/datasets/shirshatzman/flirtflip-dataset/resolve/main/flirtflip_dataset.json";
-
 const SYSTEM_PROMPT = "You are Mia, a warm private-chat companion designed for natural, long-term conversations.";
 
 function toJsonl(lines) {
-  return lines.map((line) => JSON.stringify(line)).join("\n") + "\n";
+  return lines.map((line) => JSON.stringify(line)).join("\n") + (lines.length ? "\n" : "");
 }
 
 function normalize(text) {
@@ -62,6 +55,7 @@ function buildDpoRecord({ id, original, chosen, rejected, style, scenario }) {
 }
 
 async function main() {
+  const outputDir = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "";
   const response = await fetch(SOURCE_URL);
   if (!response.ok) {
     throw new Error(`Failed to download FlirtFlip dataset: ${response.status} ${response.statusText}`);
@@ -147,20 +141,21 @@ async function main() {
     );
   }
 
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(path.join(DATA_DIR, "flirtflip_seed_sft.jsonl"), toJsonl(seedSft), "utf8");
-  await writeFile(path.join(DATA_DIR, "flirtflip_seed_dpo.jsonl"), toJsonl(seedDpo), "utf8");
-  await writeFile(path.join(DATA_DIR, "flirtflip_final_sft.jsonl"), toJsonl(finalSft), "utf8");
-  await writeFile(path.join(DATA_DIR, "flirtflip_final_dpo.jsonl"), toJsonl(finalDpo), "utf8");
-
-  console.log(JSON.stringify({
+  const summary = {
     sourceUrl: SOURCE_URL,
     rows: dataset.length,
     seedSft: seedSft.length,
     seedDpo: seedDpo.length,
     finalSft: finalSft.length,
     finalDpo: finalDpo.length,
-  }, null, 2));
+  };
+
+  console.log(JSON.stringify(summary, null, 2));
+  if (outputDir) {
+    throw new Error(
+      "This script no longer writes local data. Use the online sync route instead."
+    );
+  }
 }
 
 main().catch((error) => {

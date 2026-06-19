@@ -99,24 +99,16 @@ The repo also includes a reproducible EmpatheticDialogues seed generator and onl
 - `scripts/generate_empathetic_dialogues_seed.py`
 - `scripts/import_empathetic_dialogues_online.mjs`
 
-The online sync route pulls the official `facebook/empathetic_dialogues` source and writes it straight into D1, so you no longer need a local `data/` cache for the normal workflow.
+The online sync route pulls the official `facebook/empathetic_dialogues` source and writes it straight into D1. No local `data/` cache is part of the normal workflow.
 
 The repo already includes a reproducible FlirtFlip seed generator and online sync path:
 
 - `scripts/generate_flirtflip_seeds.mjs`
-- `scripts/clean_flirtflip_seeds.mjs`
 - `scripts/import_flirtflip_online.mjs`
 
-The online sync route pulls the FlirtFlip JSON source from Hugging Face and writes the generated seed / final records straight into D1. The files in `data/` are now optional local cache artifacts, not the source of truth.
+The online sync route pulls the FlirtFlip JSON source from Hugging Face and writes the generated seed / final records straight into D1. No local export files are required.
 
-Current generated artifacts:
-
-- `data/flirtflip_seed_sft.jsonl` - 2,142 rows
-- `data/flirtflip_seed_dpo.jsonl` - 2,142 rows
-- `data/flirtflip_final_sft.jsonl` - 1,071 rows
-- `data/flirtflip_final_dpo.jsonl` - 1,071 rows
-
-The final files keep only the safer gentle path, while the seed files preserve both gentle and playful variants for broader style coverage.
+The final data keeps only the safer gentle path, while the seed data preserves both gentle and playful variants for broader style coverage.
 
 ## 1. Sample Format
 
@@ -573,10 +565,7 @@ Use this only for debugging or quick inspection.
 
 ### 3.4 Final cleaned export
 
-The repository also keeps cleaner, directly trainable FlirtFlip outputs in `data/` as optional cache:
-
-- `flirtflip_final_sft.jsonl`
-- `flirtflip_final_dpo.jsonl`
+The repository no longer keeps a local `data/` cache. Use the online sync route and export from D1 instead.
 
 These are the versions to use when you want a cleaner starting point for LoRA / DPO preparation.
 

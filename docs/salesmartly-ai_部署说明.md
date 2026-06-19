@@ -55,13 +55,9 @@
   - 适合手动粘贴 JSONL 直接写进 D1
 - `/admin/empathetic/sync` EmpatheticDialogues 在线同步
   - 直接从官方源拉取并写入 D1，不依赖本地文件
-- FlirtFlip 风格迁移训练资产的生成与清洗
+- FlirtFlip 风格迁移训练资产的在线同步
   - `scripts/generate_flirtflip_seeds.mjs`
-  - `scripts/clean_flirtflip_seeds.mjs`
-  - `data/flirtflip_seed_sft.jsonl`
-  - `data/flirtflip_seed_dpo.jsonl`
-  - `data/flirtflip_final_sft.jsonl`
-  - `data/flirtflip_final_dpo.jsonl`
+  - `scripts/import_flirtflip_online.mjs`
 
 其中向量记忆已经从 D1 迁移到 Cloudflare Vectorize，不再依赖 D1 表做语义召回。
 
@@ -115,12 +111,7 @@
 
 这样不会反复拿同一批旧消息重写摘要，也更适合长期陪伴场景的连续记忆。
 
-如果你继续做训练准备，当前更适合直接使用：
-
-- `data/flirtflip_final_sft.jsonl`
-- `data/flirtflip_final_dpo.jsonl`
-
-这两个文件是现在已经清洗好的版本，更适合先做风格对齐和偏好整理。
+如果你继续做训练准备，当前更适合直接走线上同步到 D1，再从 D1 导出训练集，不保留本地训练文件。
 
 如果想把 FlirtFlip 变成真正的线上数据源，先部署 Worker，再直接跑：
 
