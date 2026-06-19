@@ -26,10 +26,9 @@
 - `status=unlabeled` 的未标注工作流
 - FlirtFlip 风格种子生成与清洗链路
 - 当前可直接训练的公开对话清洗版
-  - FlirtFlip seed SFT：2142
-  - FlirtFlip seed DPO：2142
-  - FlirtFlip final SFT：1071
-  - FlirtFlip final DPO：1071
+- FlirtFlip 线上同步与 D1 落库链路
+- EmpatheticDialogues 线上同步与 D1 落库链路
+- 本地 `data/` 训练文件已取消，训练资产只保留在 D1 和导出流里
 
 ## 里程碑 1
 
@@ -138,6 +137,7 @@
 - 样本质量统计
 - 好 / 坏回复对比分析
 - 为 LoRA / DPO 准备干净数据
+- 所有训练源都走线上同步，不再依赖本地数据目录
 - 训练实现细节见 [`TRAINING_IMPLEMENTATION.md`](TRAINING_IMPLEMENTATION.md)
 - 当前公开对话清洗版已经生成，可直接拿去继续整理训练集
 
