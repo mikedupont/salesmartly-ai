@@ -834,58 +834,57 @@ export default {
         salesmartlyMsgId,
       });
 
-      const customer = await getCustomer(env, chatUserId);
-      const recentMessages = await getRecentMessages(env, chatUserId, RECENT_MESSAGES_LIMIT);
-      const memoryBundle = await loadMemoryBundle(env, {
-        chatUserId,
-        customer,
-        relationshipStage: customer?.relationship_stage || relationshipStage,
-        customerMessage,
-        embeddingFn: (text) => getTextEmbedding(env, text),
-      });
-      const dialogueStrategy = buildDialogueStrategy({
-        customerMessage,
-        customerSummary: memoryBundle.summary,
-        memoryFacts: memoryBundle.facts,
-        vectorMemories: memoryBundle.vectorMemories,
-        relationshipState: memoryBundle.relationshipState,
-        recentMessages,
-      });
-      const contextSnapshot = buildConversationContext({
-        customerName,
-        customerRemark,
-        customerMessage,
-        customerSummary: memoryBundle.summary,
-        memoryFacts: memoryBundle.facts,
-        vectorMemories: memoryBundle.vectorMemories,
-        relationshipState: memoryBundle.relationshipState,
-        recentMessages,
-        formatRecentConversation,
-        formatMemoryFacts,
-        formatVectorMemories,
-        formatRelationshipState,
-      });
-
-      const aiReply = await generateAIReply({
-        env,
-        customerName,
-        customerRemark,
-        customerMessage,
-        relationshipStage: memoryBundle.relationshipState.stage,
-        customerSummary: memoryBundle.summary,
-        memoryFacts: memoryBundle.facts,
-        vectorMemories: memoryBundle.vectorMemories,
-        relationshipState: memoryBundle.relationshipState,
-        recentMessages,
-        formatRecentConversation,
-        formatMemoryFacts,
-        formatVectorMemories,
-        formatRelationshipState,
-      });
-
       ctx.waitUntil(
         (async () => {
           try {
+            const customer = await getCustomer(env, chatUserId);
+            const recentMessages = await getRecentMessages(env, chatUserId, RECENT_MESSAGES_LIMIT);
+            const memoryBundle = await loadMemoryBundle(env, {
+              chatUserId,
+              customer,
+              relationshipStage: customer?.relationship_stage || relationshipStage,
+              customerMessage,
+              embeddingFn: (text) => getTextEmbedding(env, text),
+            });
+            const dialogueStrategy = buildDialogueStrategy({
+              customerMessage,
+              customerSummary: memoryBundle.summary,
+              memoryFacts: memoryBundle.facts,
+              vectorMemories: memoryBundle.vectorMemories,
+              relationshipState: memoryBundle.relationshipState,
+              recentMessages,
+            });
+            const contextSnapshot = buildConversationContext({
+              customerName,
+              customerRemark,
+              customerMessage,
+              customerSummary: memoryBundle.summary,
+              memoryFacts: memoryBundle.facts,
+              vectorMemories: memoryBundle.vectorMemories,
+              relationshipState: memoryBundle.relationshipState,
+              recentMessages,
+              formatRecentConversation,
+              formatMemoryFacts,
+              formatVectorMemories,
+              formatRelationshipState,
+            });
+            const aiReply = await generateAIReply({
+              env,
+              customerName,
+              customerRemark,
+              customerMessage,
+              relationshipStage: memoryBundle.relationshipState.stage,
+              customerSummary: memoryBundle.summary,
+              memoryFacts: memoryBundle.facts,
+              vectorMemories: memoryBundle.vectorMemories,
+              relationshipState: memoryBundle.relationshipState,
+              recentMessages,
+              formatRecentConversation,
+              formatMemoryFacts,
+              formatVectorMemories,
+              formatRelationshipState,
+            });
+
             await saveTrainingSample({
               env,
               chatUserId,
@@ -953,22 +952,11 @@ export default {
               },
               embeddingFn: (text) => getTextEmbedding(env, text),
             });
-          } catch (err) {
-            console.log("Memory write exception:", err.message);
-          }
-        })()
-      );
 
-      let salesmartlySendResult = null;
-      const assistantStatus = env.AUTO_REPLY === "true" ? "queued" : "generated";
-
-      if (env.AUTO_REPLY === "true") {
-        const delaySeconds = getHumanDelaySeconds(customerMessage);
-        ctx.waitUntil(
-          (async () => {
-            try {
+            if (env.AUTO_REPLY === "true") {
+              const delaySeconds = getHumanDelaySeconds(customerMessage);
               await sleep(delaySeconds * 1000);
-              salesmartlySendResult = await sendToSaleSmartly({
+              const salesmartlySendResult = await sendToSaleSmartly({
                 env,
                 body,
                 sessionId,
@@ -985,26 +973,26 @@ export default {
                 content: aiReply,
                 salesmartlyMsgId: "",
               });
-            } catch (err) {
-              console.log("Salesmartly background send exception:", err.message);
+            } else {
+              await saveMessage({
+                env,
+                chatUserId,
+                sessionId,
+                role: "assistant",
+                status: "generated",
+                content: aiReply,
+                salesmartlyMsgId: "",
+              });
             }
-          })()
-        );
-      } else {
-        await saveMessage({
-          env,
-          chatUserId,
-          sessionId,
-          role: "assistant",
-          status: assistantStatus,
-          content: aiReply,
-          salesmartlyMsgId: "",
-        });
-      }
+          } catch (err) {
+            console.log("Webhook background task exception:", err.message);
+          }
+        })()
+      );
 
       return jsonResponse({
         ok: true,
-        message: "AI reply generated",
+        message: "Accepted",
         customerName,
         customerRemark,
         customerMessage,
@@ -1014,10 +1002,7 @@ export default {
         projectId,
         sysUserId,
         salesmartlyMsgId,
-        aiReply,
-        assistantStatus,
         autoReply: env.AUTO_REPLY === "true",
-        salesmartlySendResult,
       });
     }
 
