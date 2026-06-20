@@ -49,6 +49,10 @@
   - 适合手动粘贴 JSONL 直接写进 D1
 - `/admin/flirtflip/sync` FlirtFlip 在线同步
   - 直接从源站拉取并写入 D1，不依赖本地文件
+- `/admin/flirtflip/supplement/sync` FlirtFlip 补充层同步
+  - 直接从公开补充语料拉取并写入 D1，不依赖本地文件
+- `/admin/flirtflip/relabel` FlirtFlip 批量重标记
+  - 用于把已导入样本从 seed 重标成 supplement
 - `/admin/empathetic` EmpatheticDialogues 线上查看
 - `/admin/empathetic/export` EmpatheticDialogues 在线导出
 - `/admin/empathetic/import` EmpatheticDialogues 在线导入
@@ -58,6 +62,7 @@
 - FlirtFlip 风格迁移训练资产的在线同步
   - `scripts/generate_flirtflip_seeds.mjs`
   - `scripts/import_flirtflip_online.mjs`
+  - `scripts/import_flirtflip_supplement_online.mjs`
 
 其中向量记忆已经从 D1 迁移到 Cloudflare Vectorize，不再依赖 D1 表做语义召回。
 

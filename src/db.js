@@ -13,6 +13,12 @@ const REFERENCE_SOURCE_TARGETS = [
   { source: "real", limit: 1 },
 ];
 
+const FLIRTFLIP_LAYER_PRIORITY = {
+  final: 3,
+  supplement: 2,
+  seed: 1,
+};
+
 export async function initDb(env) {
   if (!env.DB) {
     throw new Error("Missing D1 binding: DB");
@@ -484,7 +490,7 @@ export async function getConversationSummaries(env, chatUserId, limit = 10) {
 
 function normalizeFlirtFlipDatasetKind(value = "") {
   const text = cleanText(value).toLowerCase();
-  if (["seed", "final"].includes(text)) return text;
+  if (["seed", "supplement", "final"].includes(text)) return text;
   return "";
 }
 
@@ -603,8 +609,53 @@ export async function upsertFlirtFlipSamples(env, records = [], fallbackDatasetK
   return { inserted, replaced: !!replace };
 }
 
+export async function relabelFlirtFlipSamples(env, { fromDatasetKind = "", toDatasetKind = "", sourceKind = "", recordType = "" } = {}) {
+  const nextDatasetKind = normalizeFlirtFlipDatasetKind(toDatasetKind);
+  if (!nextDatasetKind) {
+    return { updated: 0 };
+  }
+
+  const conditions = [];
+  const params = [];
+
+  if (fromDatasetKind) {
+    const normalized = normalizeFlirtFlipDatasetKind(fromDatasetKind);
+    if (normalized) {
+      conditions.push("dataset_kind = ?");
+      params.push(normalized);
+    }
+  }
+
+  if (sourceKind) {
+    conditions.push("source_kind = ?");
+    params.push(cleanText(sourceKind));
+  }
+
+  if (recordType) {
+    const normalizedRecordType = cleanText(recordType).toLowerCase();
+    if (["sft", "dpo"].includes(normalizedRecordType)) {
+      conditions.push("record_type = ?");
+      params.push(normalizedRecordType);
+    }
+  }
+
+  if (!conditions.length) {
+    return { updated: 0 };
+  }
+
+  const result = await env.DB.prepare(`
+    UPDATE flirtflip_samples
+    SET dataset_kind = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE ${conditions.join(" AND ")};
+  `)
+    .bind(nextDatasetKind, ...params)
+    .run();
+
+  return { updated: Number(result?.meta?.changes || 0) };
+}
+
 export async function getFlirtFlipStats(env) {
-  const [totals, datasetKinds, recordTypes, latest] = await Promise.all([
+  const [totals, datasetKinds, recordTypes, sourceKinds, latest] = await Promise.all([
     env.DB.prepare(`
       SELECT
         COUNT(*) AS total_count,
@@ -628,6 +679,13 @@ export async function getFlirtFlipStats(env) {
     `)
       .all(),
     env.DB.prepare(`
+      SELECT source_kind, COUNT(*) AS count
+      FROM flirtflip_samples
+      GROUP BY source_kind
+      ORDER BY count DESC, source_kind ASC;
+    `)
+      .all(),
+    env.DB.prepare(`
       SELECT id, record_type, dataset_kind, source_kind, sample_stage, sample_intent, scenario, payload_json, created_at, updated_at
       FROM flirtflip_samples
       ORDER BY updated_at DESC, id DESC
@@ -644,6 +702,10 @@ export async function getFlirtFlipStats(env) {
     })),
     recordTypes: (recordTypes?.results || []).map((item) => ({
       recordType: item.record_type || "",
+      count: Number(item.count || 0),
+    })),
+    sourceKinds: (sourceKinds?.results || []).map((item) => ({
+      sourceKind: item.source_kind || "",
       count: Number(item.count || 0),
     })),
     latest: latest
@@ -1939,7 +2001,10 @@ function selectTopReferenceSamples(samples = [], queryText = "", limit = 1, samp
   return (Array.isArray(samples) ? samples : [])
     .map((sample, index) => ({
       sample,
-      score: scoreReferenceMatch(sampleTextFn(sample), queryText) + Math.max(0, 0.001 * (1000 - index)),
+      score:
+        scoreReferenceMatch(sampleTextFn(sample), queryText) +
+        Math.max(0, 0.001 * (1000 - index)) +
+        (FLIRTFLIP_LAYER_PRIORITY[cleanText(sample?.datasetKind || "").toLowerCase()] || 0) * 0.02,
     }))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
@@ -1965,7 +2030,7 @@ async function getReferenceExamples(env, { chatUserId, customerMessage = "", cus
   const queryText = cleanText([customerMessage, customerSummary].filter(Boolean).join(" "));
   const [empatheticSamples, flirtflipSamples, realSamples] = await Promise.all([
     getEmpatheticDialogueSamples(env, 30, { split: "all" }),
-    getFlirtFlipSamples(env, 30, { datasetKind: "all", recordType: "all" }),
+    getFlirtFlipSamples(env, 60, { datasetKind: "all", recordType: "sft" }),
     getTrainingSamples(env, chatUserId, 20, "labeled"),
   ]);
 
@@ -1990,7 +2055,7 @@ async function getReferenceExamples(env, { chatUserId, customerMessage = "", cus
     source: "FlirtFlip",
     prompt: sample.preview?.prompt || sample.preview?.user || "",
     assistant: sample.preview?.chosen || sample.preview?.assistant || "",
-    note: sample.scenario || sample.sampleIntent || "",
+    note: [sample.datasetKind || "", sample.scenario || sample.sampleIntent || "", sample.sourceKind || ""].filter(Boolean).join(" · "),
   }));
 
   const real = selectTopReferenceSamples(

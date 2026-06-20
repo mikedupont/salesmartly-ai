@@ -243,6 +243,7 @@ export function renderAdminPage() {
             <select id="flirtflipDatasetKind">
               <option value="all">全部</option>
               <option value="seed">seed</option>
+              <option value="supplement">supplement</option>
               <option value="final">final</option>
             </select>
           </div>
@@ -256,7 +257,7 @@ export function renderAdminPage() {
           </div>
           <div>
             <label>来源</label>
-            <input id="flirtflipSourceKind" placeholder="flirtflip_seed" />
+            <input id="flirtflipSourceKind" placeholder="flirtflip_seed / the_rizz_corpus" />
           </div>
         </div>
         <div style="height: 12px;"></div>
@@ -264,6 +265,7 @@ export function renderAdminPage() {
         <div class="row" style="margin-top:12px;">
           <button id="loadFlirtflip" class="secondary">加载线上数据</button>
           <button id="syncFlirtflip" class="secondary">在线同步</button>
+          <button id="syncFlirtflipSupplement" class="secondary">同步补充层</button>
           <button id="exportFlirtflip" class="secondary">导出 JSONL</button>
         </div>
         <div style="height: 12px;"></div>
@@ -277,6 +279,7 @@ export function renderAdminPage() {
               <label class="small">dataset kind</label>
               <select id="flirtflipImportDatasetKind">
                 <option value="seed">seed</option>
+                <option value="supplement">supplement</option>
                 <option value="final">final</option>
               </select>
             </div>
@@ -729,6 +732,7 @@ export function renderAdminPage() {
       $("flirtflipStats").innerHTML = flirtflipData.ok ? [
         { key: "total", value: flirtflipData.stats?.total ?? 0, meta: "dataset kinds " + (flirtflipData.stats?.datasetKinds?.length ?? 0) },
         { key: "types", value: flirtflipData.stats?.recordTypes?.map((item) => item.recordType + " " + item.count).join(" · ") || "n/a", meta: "record types" },
+        { key: "sources", value: flirtflipData.stats?.sourceKinds?.slice(0, 3).map((item) => item.sourceKind + " " + item.count).join(" · ") || "n/a", meta: "source kinds" },
         { key: "latest", value: flirtflipData.stats?.latest?.id || "n/a", meta: (flirtflipData.stats?.latest?.recordType || "n/a") + " · " + (flirtflipData.stats?.latest?.datasetKind || "n/a") },
         { key: "source", value: flirtflipData.filters?.sourceKind || "all", meta: "current filter" },
       ].map((item) => '<div class="kv"><div class="k">' + escapeHtml(item.key) + "</div><div class=\"v\">" + escapeHtml(String(item.value)) + '</div><div class="small">' + escapeHtml(item.meta) + "</div></div>").join("") : '<div class="small">暂无 FlirtFlip 数据</div>';
@@ -841,6 +845,28 @@ export function renderAdminPage() {
         return;
       }
       alert("FlirtFlip 已在线同步");
+      await loadMemory();
+    }
+
+    async function syncFlirtflipSupplementOnline() {
+      syncStorage();
+      const key = $("key").value.trim();
+      const res = await fetch(location.origin + "/admin/flirtflip/supplement/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": key,
+        },
+        body: JSON.stringify({
+          replace: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({ ok: false, error: "Invalid JSON" }));
+      if (!res.ok || !data.ok) {
+        alert("同步补充层失败: " + (data.error || res.status));
+        return;
+      }
+      alert("FlirtFlip 补充层已同步");
       await loadMemory();
     }
 
@@ -1086,6 +1112,7 @@ export function renderAdminPage() {
     $("importFlirtflip").addEventListener("click", importFlirtflip);
     $("loadFlirtflip").addEventListener("click", loadMemory);
     $("syncFlirtflip").addEventListener("click", syncFlirtflipOnline);
+    $("syncFlirtflipSupplement").addEventListener("click", syncFlirtflipSupplementOnline);
     $("exportEmpathetic").addEventListener("click", exportEmpathetic);
     $("importEmpathetic").addEventListener("click", importEmpathetic);
     $("loadEmpathetic").addEventListener("click", loadMemory);

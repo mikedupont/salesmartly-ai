@@ -32,14 +32,17 @@ import {
   getFlirtFlipSamples,
   getFlirtFlipStats,
   upsertFlirtFlipSamples,
+  relabelFlirtFlipSamples,
   getEmpatheticDialogueSamples,
   getEmpatheticDialogueStats,
   upsertEmpatheticDialogueSamples,
 } from "./db.js";
 import {
   FLIRTFLIP_SOURCE_URL,
+  FLIRTFLIP_SUPPLEMENT_SOURCE_URL,
   EMPATHETIC_DIALOGUES_SOURCE_URL,
   buildFlirtFlipSourceRecords,
+  buildFlirtFlipSupplementRecords,
   buildEmpatheticDialogueRecord,
 } from "./training_sources.js";
 import { generateAIReply, generateCustomerSummary, generateMemoryWritePlan, getTextEmbedding, fallbackReply, extractOpenAIText } from "./ai.js";
@@ -184,6 +187,17 @@ async function fetchFlirtFlipSourceRecords(limit = 0) {
   return buildFlirtFlipSourceRecords(source);
 }
 
+async function fetchFlirtFlipSupplementRecords(limit = 0) {
+  const response = await fetch(FLIRTFLIP_SUPPLEMENT_SOURCE_URL);
+  if (!response.ok) {
+    throw new Error(`Failed to download FlirtFlip supplement corpus: ${response.status} ${response.statusText}`);
+  }
+
+  const text = await response.text();
+  const records = buildFlirtFlipSupplementRecords(text);
+  return limit > 0 ? records.slice(0, limit) : records;
+}
+
 async function fetchEmpatheticDialogueSourceRecords(limit = 0) {
   const response = await fetch(EMPATHETIC_DIALOGUES_SOURCE_URL);
   if (!response.ok) {
@@ -248,6 +262,8 @@ export default {
           "/admin/flirtflip/export?key=YOUR_KEY&format=jsonl",
           "/admin/flirtflip/import?key=YOUR_KEY",
           "/admin/flirtflip/sync?key=YOUR_KEY",
+          "/admin/flirtflip/supplement/sync?key=YOUR_KEY",
+          "/admin/flirtflip/relabel?key=YOUR_KEY",
           "/admin/empathetic?key=YOUR_KEY",
           "/admin/empathetic/export?key=YOUR_KEY&format=jsonl",
           "/admin/empathetic/import?key=YOUR_KEY",
@@ -476,6 +492,63 @@ export default {
         sourceUrl: FLIRTFLIP_SOURCE_URL,
         limit,
         results,
+      });
+    }
+
+    if (url.pathname === "/admin/flirtflip/supplement/sync" && request.method === "POST") {
+      const auth = requireAdminKey(env, request, url);
+      if (!auth.ok) return auth.response;
+
+      await initDb(env);
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        body = {};
+      }
+
+      const replace = !!(body.replace || body.reset);
+      const limit = Math.min(Math.max(Number(body.limit || url.searchParams.get("limit") || 0), 0), 20000);
+      const records = await fetchFlirtFlipSupplementRecords(limit);
+      if (replace) {
+        await env.DB.prepare(`
+          DELETE FROM flirtflip_samples
+          WHERE dataset_kind = 'supplement' OR source_kind = 'the_rizz_corpus';
+        `).run();
+      }
+      const result = await upsertFlirtFlipSamples(env, records, "supplement", false);
+
+      return jsonResponse({
+        ok: true,
+        sourceUrl: FLIRTFLIP_SUPPLEMENT_SOURCE_URL,
+        limit,
+        inserted: result.inserted,
+        replaced: result.replaced,
+      });
+    }
+
+    if (url.pathname === "/admin/flirtflip/relabel" && request.method === "POST") {
+      const auth = requireAdminKey(env, request, url);
+      if (!auth.ok) return auth.response;
+
+      await initDb(env);
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        body = {};
+      }
+
+      const result = await relabelFlirtFlipSamples(env, {
+        fromDatasetKind: body.fromDatasetKind || body.from_dataset_kind || "",
+        toDatasetKind: body.toDatasetKind || body.to_dataset_kind || "",
+        sourceKind: body.sourceKind || body.source_kind || "",
+        recordType: body.recordType || body.record_type || "",
+      });
+
+      return jsonResponse({
+        ok: true,
+        updated: result.updated,
       });
     }
 

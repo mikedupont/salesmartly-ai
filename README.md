@@ -60,6 +60,7 @@
 - 已补充 FlirtFlip 在线同步脚本
   - `scripts/generate_flirtflip_seeds.mjs`
   - `scripts/import_flirtflip_online.mjs`
+  - `scripts/import_flirtflip_supplement_online.mjs`
 - 已补充 EmpatheticDialogues 在线同步脚本
   - `scripts/generate_empathetic_dialogues_seed.py`
   - `scripts/import_empathetic_dialogues_online.mjs`
@@ -94,12 +95,13 @@
 
 如果你要继续按现在这条路线落地训练闭环，可以直接看 [`docs/TRAINING_IMPLEMENTATION.md`](docs/TRAINING_IMPLEMENTATION.md)。
 
-当前已经生成的 FlirtFlip 样本是：
+当前 FlirtFlip 在线总量已经补到 10000 条，后台会按三层显示：
 
-- seed SFT：2142 条
-- seed DPO：2142 条
-- final SFT：1071 条
-- final DPO：1071 条
+当前 FlirtFlip 已按三层整理：
+
+- `seed`：原始 FlirtFlip 双风格展开样本
+- `supplement`：公开补充语料，作为风格补位
+- `final`：更保守的 gentle 路线，只保留稳定版本
 
 其中 final 版只保留更保守的 gentle 路线，适合先做基础风格对齐；seed 版保留 gentle / playful 两种正向风格和对应偏好对。
 

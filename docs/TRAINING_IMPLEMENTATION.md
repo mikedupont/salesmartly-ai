@@ -79,9 +79,9 @@ Good public sources to mix in:
 
 Recommended mix:
 
-- 60% real product conversations
-- 25% FlirtFlip style seeds
-- 15% synthetic hard cases or style-coverage samples
+- 60% EmpatheticDialogues and related public empathy-style data
+- 30% FlirtFlip style seeds and supplement layer
+- 10% real product conversations
 
 If you are expanding the optional general dialogue layer later, a practical ordering is:
 
@@ -106,7 +106,13 @@ The repo already includes a reproducible FlirtFlip seed generator and online syn
 - `scripts/generate_flirtflip_seeds.mjs`
 - `scripts/import_flirtflip_online.mjs`
 
-The online sync route pulls the FlirtFlip JSON source from Hugging Face and writes the generated seed / final records straight into D1. No local export files are required.
+The online sync route pulls the FlirtFlip JSON source from Hugging Face and writes the generated seed / supplement / final records straight into D1. The data is now organized in three layers:
+
+- `seed`
+- `supplement`
+- `final`
+
+The supplement layer is reserved for public style-coverage corpora and is kept separate so you can filter it out later if needed. No local export files are required.
 
 The final data keeps only the safer gentle path, while the seed data preserves both gentle and playful variants for broader style coverage.
 
