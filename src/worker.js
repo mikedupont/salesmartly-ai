@@ -33,9 +33,11 @@ import {
   getFlirtFlipStats,
   upsertFlirtFlipSamples,
   relabelFlirtFlipSamples,
+  cleanFlirtFlipSamples,
   getEmpatheticDialogueSamples,
   getEmpatheticDialogueStats,
   upsertEmpatheticDialogueSamples,
+  cleanEmpatheticDialogueSamples,
 } from "./db.js";
 import {
   FLIRTFLIP_SOURCE_URL,
@@ -264,10 +266,12 @@ export default {
           "/admin/flirtflip/sync?key=YOUR_KEY",
           "/admin/flirtflip/supplement/sync?key=YOUR_KEY",
           "/admin/flirtflip/relabel?key=YOUR_KEY",
+          "/admin/flirtflip/clean?key=YOUR_KEY",
           "/admin/empathetic?key=YOUR_KEY",
           "/admin/empathetic/export?key=YOUR_KEY&format=jsonl",
           "/admin/empathetic/import?key=YOUR_KEY",
           "/admin/empathetic/sync?key=YOUR_KEY",
+          "/admin/empathetic/clean?key=YOUR_KEY",
           "/admin/training/feedback?key=YOUR_KEY",
           "/admin/training/annotate?key=YOUR_KEY",
         ],
@@ -552,6 +556,28 @@ export default {
       });
     }
 
+    if (url.pathname === "/admin/flirtflip/clean" && request.method === "POST") {
+      const auth = requireAdminKey(env, request, url);
+      if (!auth.ok) return auth.response;
+
+      await initDb(env);
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        body = {};
+      }
+
+      const result = await cleanFlirtFlipSamples(env, {
+        datasetKind: body.datasetKind || body.dataset_kind || "all",
+        sourceKind: body.sourceKind || body.source_kind || "",
+        recordType: body.recordType || body.record_type || "all",
+        dryRun: body.dryRun !== false && body.dry_run !== false,
+      });
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
     if (url.pathname === "/admin/empathetic" && request.method === "GET") {
       const auth = requireAdminKey(env, request, url);
       if (!auth.ok) return auth.response;
@@ -660,6 +686,27 @@ export default {
         inserted: result.inserted,
         replaced: result.replaced,
       });
+    }
+
+    if (url.pathname === "/admin/empathetic/clean" && request.method === "POST") {
+      const auth = requireAdminKey(env, request, url);
+      if (!auth.ok) return auth.response;
+
+      await initDb(env);
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        body = {};
+      }
+
+      const result = await cleanEmpatheticDialogueSamples(env, {
+        split: body.split || body.datasetSplit || "all",
+        context: body.context || "",
+        dryRun: body.dryRun !== false && body.dry_run !== false,
+      });
+
+      return jsonResponse({ ok: true, ...result });
     }
 
     if (url.pathname === "/admin/empathetic/sync" && request.method === "POST") {

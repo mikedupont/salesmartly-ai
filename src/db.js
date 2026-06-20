@@ -19,6 +19,118 @@ const FLIRTFLIP_LAYER_PRIORITY = {
   seed: 1,
 };
 
+const PUBLIC_DIALOGUE_MIN_WORDS = {
+  flirtflip: {
+    prompt: 2,
+    assistant: 3,
+    total: 6,
+  },
+  empathetic: {
+    prompt: 4,
+    assistant: 4,
+    total: 10,
+  },
+};
+
+const PUBLIC_DIALOGUE_GENERIC_FILLERS = new Set([
+  "ok",
+  "okay",
+  "k",
+  "lol",
+  "lmao",
+  "haha",
+  "ha",
+  "yes",
+  "no",
+  "sure",
+  "cool",
+  "nice",
+  "great",
+  "thanks",
+  "thank you",
+  "alright",
+  "yep",
+  "nah",
+  "good",
+  "fine",
+  "same",
+  "true",
+]);
+
+const PUBLIC_DIALOGUE_BAD_CONTENT_RE =
+  /\b(fuck|fucking|porn|naked|blowjob|dick|pussy|cum|masturbat|whore|slut|anal|boobs?|tits?|orgasm|horny)\b/i;
+
+function tokenizeDialogueWords(value = "") {
+  return cleanText(value)
+    .toLowerCase()
+    .match(/[a-z0-9']+/g) || [];
+}
+
+function countDialogueWords(value = "") {
+  return tokenizeDialogueWords(value).length;
+}
+
+function normalizeDialoguePhrase(value = "") {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/[.!?]+$/g, "")
+    .trim();
+}
+
+function isGenericDialogueFiller(value = "") {
+  const text = normalizeDialoguePhrase(value);
+  if (!text) return true;
+  if (PUBLIC_DIALOGUE_GENERIC_FILLERS.has(text)) return true;
+  const words = tokenizeDialogueWords(text);
+  return words.length <= 2 && PUBLIC_DIALOGUE_GENERIC_FILLERS.has(words.join(" "));
+}
+
+function looksLikeDialogueNoise(value = "") {
+  const text = cleanText(value);
+  if (!text) return true;
+  if (/^(.)\1{4,}$/.test(text.replace(/\s+/g, ""))) return true;
+  if (/https?:\/\//i.test(text)) return true;
+  if (/[<>]{2,}|[\[\]{}]{3,}/.test(text)) return true;
+  if (/^\d+$/.test(text)) return true;
+  return false;
+}
+
+function reviewDialoguePair({ prompt = "", assistant = "", minPromptWords = 2, minAssistantWords = 3, minTotalWords = 6 }) {
+  const user = cleanText(prompt);
+  const reply = cleanText(assistant);
+  const totalWords = countDialogueWords(`${user} ${reply}`);
+  const userWords = countDialogueWords(user);
+  const replyWords = countDialogueWords(reply);
+  const normalizedUser = normalizeDialoguePhrase(user);
+  const normalizedReply = normalizeDialoguePhrase(reply);
+
+  if (!user || !reply) {
+    return { keep: false, reason: "empty" };
+  }
+  if (PUBLIC_DIALOGUE_BAD_CONTENT_RE.test(`${user} ${reply}`)) {
+    return { keep: false, reason: "explicit_content" };
+  }
+  if (looksLikeDialogueNoise(user) || looksLikeDialogueNoise(reply)) {
+    return { keep: false, reason: "noise" };
+  }
+  if (normalizedUser && normalizedUser === normalizedReply) {
+    return { keep: false, reason: "duplicate_text" };
+  }
+  if (userWords < minPromptWords && replyWords < minAssistantWords) {
+    return { keep: false, reason: "too_short" };
+  }
+  if (totalWords < minTotalWords) {
+    return { keep: false, reason: "too_short" };
+  }
+  if (replyWords <= 2 && isGenericDialogueFiller(reply)) {
+    return { keep: false, reason: "generic_reply" };
+  }
+  if (userWords <= 2 && isGenericDialogueFiller(user) && replyWords <= 4) {
+    return { keep: false, reason: "generic_exchange" };
+  }
+  return { keep: true, reason: "keep" };
+}
+
 export async function initDb(env) {
   if (!env.DB) {
     throw new Error("Missing D1 binding: DB");
@@ -800,6 +912,97 @@ export async function getFlirtFlipSamples(env, limit = 20, filters = {}) {
   });
 }
 
+async function deleteRowsByIds(env, table, ids = []) {
+  const uniqueIds = [...new Set((Array.isArray(ids) ? ids : []).map((item) => String(item || "").trim()).filter(Boolean))];
+  if (!uniqueIds.length) {
+    return 0;
+  }
+
+  let deleted = 0;
+  const batchSize = 50;
+  for (let index = 0; index < uniqueIds.length; index += batchSize) {
+    const chunk = uniqueIds.slice(index, index + batchSize);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const result = await env.DB.prepare(`DELETE FROM ${table} WHERE id IN (${placeholders});`).bind(...chunk).run();
+    deleted += Number(result?.meta?.changes || 0);
+  }
+
+  return deleted;
+}
+
+export async function cleanFlirtFlipSamples(env, { datasetKind = "all", sourceKind = "", recordType = "all", dryRun = true } = {}) {
+  const normalizedDatasetKind = cleanText(datasetKind || "all").toLowerCase();
+  const normalizedRecordType = cleanText(recordType || "all").toLowerCase();
+  const normalizedSourceKind = cleanText(sourceKind || "").toLowerCase();
+  const conditions = [];
+  const params = [];
+
+  if (normalizedDatasetKind && normalizedDatasetKind !== "all") {
+    conditions.push("dataset_kind = ?");
+    params.push(normalizedDatasetKind);
+  }
+  if (normalizedRecordType && normalizedRecordType !== "all" && ["sft", "dpo"].includes(normalizedRecordType)) {
+    conditions.push("record_type = ?");
+    params.push(normalizedRecordType);
+  }
+  if (normalizedSourceKind) {
+    conditions.push("source_kind LIKE ?");
+    params.push(`%${normalizedSourceKind}%`);
+  }
+
+  const result = await env.DB.prepare(`
+    SELECT id, record_type, dataset_kind, source_kind, payload_json, updated_at
+    FROM flirtflip_samples
+    ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+    ORDER BY
+      CASE dataset_kind WHEN 'final' THEN 3 WHEN 'supplement' THEN 2 WHEN 'seed' THEN 1 ELSE 0 END DESC,
+      updated_at DESC,
+      id DESC;
+  `)
+    .bind(...params)
+    .all();
+
+  const rows = result.results || [];
+  const seen = new Set();
+  const keepIds = [];
+  const deleteIds = [];
+  const reasons = {};
+
+  for (const row of rows) {
+    const payload = safeJsonObject(row.payload_json);
+    const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+    const user = cleanText(messages.find((item) => item?.role === "user")?.content || payload?.prompt || "");
+    const assistant = cleanText(messages.find((item) => item?.role === "assistant")?.content || payload?.chosen || payload?.assistant || "");
+    const review = reviewDialoguePair({
+      prompt: user,
+      assistant,
+      minPromptWords: PUBLIC_DIALOGUE_MIN_WORDS.flirtflip.prompt,
+      minAssistantWords: PUBLIC_DIALOGUE_MIN_WORDS.flirtflip.assistant,
+      minTotalWords: PUBLIC_DIALOGUE_MIN_WORDS.flirtflip.total,
+    });
+    const dedupeKey = `${row.record_type || ""}|${normalizeDialoguePhrase(user)}|${normalizeDialoguePhrase(assistant)}`;
+
+    if (review.keep && !seen.has(dedupeKey)) {
+      seen.add(dedupeKey);
+      keepIds.push(row.id);
+      continue;
+    }
+
+    const reason = review.keep ? "duplicate" : review.reason;
+    reasons[reason] = Number(reasons[reason] || 0) + 1;
+    deleteIds.push(row.id);
+  }
+
+  const deleted = dryRun ? 0 : await deleteRowsByIds(env, "flirtflip_samples", deleteIds);
+  return {
+    scanned: rows.length,
+    kept: keepIds.length,
+    deleted: dryRun ? deleteIds.length : deleted,
+    reasons,
+    dryRun: !!dryRun,
+  };
+}
+
 function normalizeEmpatheticDialogueSplit(value = "") {
   const text = cleanText(value).toLowerCase();
   if (["train", "validation", "test"].includes(text)) return text;
@@ -1017,6 +1220,67 @@ export async function getEmpatheticDialogueSamples(env, limit = 20, filters = {}
       updatedAt: row.updated_at || "",
     };
   });
+}
+
+export async function cleanEmpatheticDialogueSamples(env, { split = "all", context = "", dryRun = true } = {}) {
+  const normalizedSplit = cleanText(split || "all").toLowerCase();
+  const normalizedContext = cleanText(context || "").toLowerCase();
+  const conditions = [];
+  const params = [];
+
+  if (normalizedSplit && normalizedSplit !== "all") {
+    conditions.push("split = ?");
+    params.push(normalizedSplit);
+  }
+  if (normalizedContext) {
+    conditions.push("context LIKE ?");
+    params.push(`%${normalizedContext}%`);
+  }
+
+  const result = await env.DB.prepare(`
+    SELECT id, split, source_kind, prompt, utterance, payload_json, updated_at
+    FROM empathetic_dialogues_samples
+    ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+    ORDER BY updated_at DESC, id DESC;
+  `)
+    .bind(...params)
+    .all();
+
+  const rows = result.results || [];
+  const seen = new Set();
+  const keepIds = [];
+  const deleteIds = [];
+  const reasons = {};
+
+  for (const row of rows) {
+    const review = reviewDialoguePair({
+      prompt: row.prompt || "",
+      assistant: row.utterance || "",
+      minPromptWords: PUBLIC_DIALOGUE_MIN_WORDS.empathetic.prompt,
+      minAssistantWords: PUBLIC_DIALOGUE_MIN_WORDS.empathetic.assistant,
+      minTotalWords: PUBLIC_DIALOGUE_MIN_WORDS.empathetic.total,
+    });
+    const dedupeKey = `${row.split || ""}|${normalizeDialoguePhrase(row.prompt || "")}|${normalizeDialoguePhrase(row.utterance || "")}`;
+
+    if (review.keep && !seen.has(dedupeKey)) {
+      seen.add(dedupeKey);
+      keepIds.push(row.id);
+      continue;
+    }
+
+    const reason = review.keep ? "duplicate" : review.reason;
+    reasons[reason] = Number(reasons[reason] || 0) + 1;
+    deleteIds.push(row.id);
+  }
+
+  const deleted = dryRun ? 0 : await deleteRowsByIds(env, "empathetic_dialogues_samples", deleteIds);
+  return {
+    scanned: rows.length,
+    kept: keepIds.length,
+    deleted: dryRun ? deleteIds.length : deleted,
+    reasons,
+    dryRun: !!dryRun,
+  };
 }
 
 export async function saveTrainingSample({

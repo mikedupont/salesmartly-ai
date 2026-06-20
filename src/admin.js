@@ -266,6 +266,8 @@ export function renderAdminPage() {
           <button id="loadFlirtflip" class="secondary">加载线上数据</button>
           <button id="syncFlirtflip" class="secondary">在线同步</button>
           <button id="syncFlirtflipSupplement" class="secondary">同步补充层</button>
+          <button id="previewFlirtflipClean" class="secondary">预览清理</button>
+          <button id="runFlirtflipClean" class="secondary">执行清理</button>
           <button id="exportFlirtflip" class="secondary">导出 JSONL</button>
         </div>
         <div style="height: 12px;"></div>
@@ -323,6 +325,8 @@ export function renderAdminPage() {
         <div id="empatheticStats" class="kvs"></div>
         <div class="row" style="margin-top:12px;">
           <button id="loadEmpathetic" class="secondary">加载线上数据</button>
+          <button id="previewEmpatheticClean" class="secondary">预览清理</button>
+          <button id="runEmpatheticClean" class="secondary">执行清理</button>
           <button id="exportEmpathetic" class="secondary">导出 JSONL</button>
           <button id="copyEmpatheticSync" class="secondary">复制同步命令</button>
         </div>
@@ -870,6 +874,41 @@ export function renderAdminPage() {
       await loadMemory();
     }
 
+    async function cleanPublicData(kind, dryRun) {
+      syncStorage();
+      const key = $("key").value.trim();
+      const endpoint = kind === "flirtflip" ? "/admin/flirtflip/clean" : "/admin/empathetic/clean";
+      const body = kind === "flirtflip"
+        ? {
+            datasetKind: $("flirtflipDatasetKind").value.trim() || "all",
+            sourceKind: $("flirtflipSourceKind").value.trim(),
+            recordType: $("flirtflipRecordType").value.trim() || "all",
+            dryRun: !!dryRun,
+          }
+        : {
+            split: $("empatheticSplit").value.trim() || "all",
+            context: $("empatheticContext").value.trim(),
+            dryRun: !!dryRun,
+          };
+      const res = await fetch(location.origin + endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": key,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({ ok: false, error: "Invalid JSON" }));
+      if (!res.ok || !data.ok) {
+        alert((kind === "flirtflip" ? "FlirtFlip" : "EmpatheticDialogues") + " 清理失败: " + (data.error || res.status));
+        return;
+      }
+      const label = kind === "flirtflip" ? "FlirtFlip" : "EmpatheticDialogues";
+      const action = dryRun ? "预览" : "执行";
+      alert(`${label} ${action}清理：扫描 ${data.scanned || 0}，保留 ${data.kept || 0}，${dryRun ? "可删" : "已删"} ${data.deleted || 0}`);
+      await loadMemory();
+    }
+
     async function exportEmpathetic() {
       syncStorage();
       const key = $("key").value.trim();
@@ -1113,9 +1152,13 @@ export function renderAdminPage() {
     $("loadFlirtflip").addEventListener("click", loadMemory);
     $("syncFlirtflip").addEventListener("click", syncFlirtflipOnline);
     $("syncFlirtflipSupplement").addEventListener("click", syncFlirtflipSupplementOnline);
+    $("previewFlirtflipClean").addEventListener("click", () => cleanPublicData("flirtflip", true));
+    $("runFlirtflipClean").addEventListener("click", () => cleanPublicData("flirtflip", false));
     $("exportEmpathetic").addEventListener("click", exportEmpathetic);
     $("importEmpathetic").addEventListener("click", importEmpathetic);
     $("loadEmpathetic").addEventListener("click", loadMemory);
+    $("previewEmpatheticClean").addEventListener("click", () => cleanPublicData("empathetic", true));
+    $("runEmpatheticClean").addEventListener("click", () => cleanPublicData("empathetic", false));
     $("copyEmpatheticSync").addEventListener("click", copyEmpatheticSyncCommand);
     $("copy").addEventListener("click", async () => {
       const text = JSON.stringify(window.__latestMemoryDebug || {}, null, 2);
