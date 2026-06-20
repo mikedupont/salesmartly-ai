@@ -580,6 +580,46 @@ export async function getMemoryFactsHistory(env, chatUserId, limit = 30) {
   }));
 }
 
+export async function getMemoryFactsList(env, chatUserId, { limit = 50, keyPrefix = "", status = "all" } = {}) {
+  const normalizedPrefix = cleanText(keyPrefix || "").toLowerCase();
+  const normalizedStatus = cleanText(status || "all").toLowerCase();
+  const conditions = ["chat_user_id = ?"];
+  const params = [chatUserId];
+
+  if (normalizedPrefix) {
+    conditions.push("LOWER(fact_key) LIKE ?");
+    params.push(`${normalizedPrefix}%`);
+  }
+  if (normalizedStatus && normalizedStatus !== "all") {
+    conditions.push("status = ?");
+    params.push(normalizedStatus);
+  }
+
+  params.push(limit);
+
+  const result = await env.DB.prepare(`
+    SELECT id, fact_key, fact_value, confidence, status, source_message_id, source_message_role, created_at, updated_at
+    FROM memory_facts
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY confidence DESC, updated_at DESC, id DESC
+    LIMIT ?;
+  `)
+    .bind(...params)
+    .all();
+
+  return (result.results || []).map((row) => ({
+    id: Number(row.id || 0),
+    key: row.fact_key,
+    value: row.fact_value,
+    confidence: Number(row.confidence || 0),
+    status: row.status || "active",
+    sourceMessageId: String(row.source_message_id || ""),
+    sourceMessageRole: row.source_message_role || "customer",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+  }));
+}
+
 export async function getConversationSummaries(env, chatUserId, limit = 10) {
   const result = await env.DB.prepare(`
     SELECT id, start_message_id, end_message_id, summary_text, created_at

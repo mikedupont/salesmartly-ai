@@ -21,6 +21,8 @@ import {
   getRecentMessages,
   loadMemoryBundle,
   getActiveMemoryFacts,
+  getMemoryFactsList,
+  upsertMemoryFact,
   saveTrainingSample,
   recordTrainingFeedback,
   updateTrainingSampleAnnotation,
@@ -258,6 +260,7 @@ export default {
           "/admin",
           "/admin/summarize?key=YOUR_KEY",
           "/admin/memory?key=YOUR_KEY&chat_user_id=...",
+          "/admin/memory/facts?key=YOUR_KEY&chat_user_id=...",
           "/admin/training?key=YOUR_KEY&chat_user_id=...",
           "/admin/training/export?key=YOUR_KEY&chat_user_id=...&scenario_class=work_fatigue",
           "/admin/flirtflip?key=YOUR_KEY",
@@ -314,6 +317,75 @@ export default {
         embeddingFn: (text) => getTextEmbedding(env, text),
       });
       return jsonResponse(result);
+    }
+
+    if (url.pathname === "/admin/memory/facts" && request.method === "GET") {
+      const auth = requireAdminKey(env, request, url);
+      if (!auth.ok) return auth.response;
+
+      const chatUserId = cleanText(url.searchParams.get("chat_user_id") || "");
+      if (!chatUserId) {
+        return jsonResponse({ ok: false, error: "Missing chat_user_id" }, 400);
+      }
+
+      const parseLimit = (value, fallback) => {
+        const number = Number(value);
+        if (!Number.isFinite(number) || number <= 0) return fallback;
+        return Math.min(Math.floor(number), 200);
+      };
+
+      await initDb(env);
+      const result = {
+        ok: true,
+        chatUserId,
+        facts: await getMemoryFactsList(env, chatUserId, {
+          limit: parseLimit(url.searchParams.get("limit"), 50),
+          keyPrefix: url.searchParams.get("key_prefix") || "",
+          status: url.searchParams.get("status") || "all",
+        }),
+      };
+      return jsonResponse(result);
+    }
+
+    if (url.pathname === "/admin/memory/facts" && request.method === "POST") {
+      const auth = requireAdminKey(env, request, url);
+      if (!auth.ok) return auth.response;
+
+      await initDb(env);
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        body = {};
+      }
+
+      const chatUserId = cleanText(body.chatUserId || body.chat_user_id || "");
+      const factKey = cleanText(body.factKey || body.fact_key || "");
+      const factValue = cleanText(body.factValue || body.fact_value || "");
+      if (!chatUserId) {
+        return jsonResponse({ ok: false, error: "Missing chat_user_id" }, 400);
+      }
+      if (!factKey) {
+        return jsonResponse({ ok: false, error: "Missing fact_key" }, 400);
+      }
+      if (!factValue) {
+        return jsonResponse({ ok: false, error: "Missing fact_value" }, 400);
+      }
+
+      const result = await upsertMemoryFact({
+        env,
+        chatUserId,
+        factKey,
+        factValue,
+        confidence: body.confidence,
+        sourceMessageId: body.sourceMessageId || body.source_message_id || "",
+        sourceMessageRole: body.sourceMessageRole || body.source_message_role || "customer",
+      });
+
+      return jsonResponse({
+        ok: true,
+        fact: result,
+      });
     }
 
     if (url.pathname === "/admin/training" && request.method === "GET") {

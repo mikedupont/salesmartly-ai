@@ -116,6 +116,13 @@ The supplement layer is reserved for public style-coverage corpora and is kept s
 
 The final data keeps only the safer gentle path, while the seed data preserves both gentle and playful variants for broader style coverage.
 
+Current cleaned public corpus totals:
+
+- FlirtFlip: 9996 rows
+- EmpatheticDialogues: 9605 rows
+
+Those are training assets only. Personal experience records, profile notes, and user-specific long-term memories should stay in `memory_facts`, not in the public training set.
+
 ## 1. Sample Format
 
 Each training sample should describe one real conversation turn.
@@ -488,7 +495,8 @@ The admin page also includes a small annotation panel:
 - one-click choose a candidate as `chosen`
 - manually save a `chosen / rejected` pair when the sample still needs hand curation
 - default view can focus on unlabeled samples so you can label them in sequence
-  - this is the preferred workflow when you want to keep the chosen / rejected pairs clean
+
+For operator-maintained personal memories, use the separate memory facts panel in `/admin/memory/facts` rather than the training export flow. This is the preferred workflow when you want to keep the chosen / rejected pairs clean.
 
 ### 3.0 New export shape
 

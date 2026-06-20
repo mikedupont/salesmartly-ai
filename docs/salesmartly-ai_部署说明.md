@@ -34,6 +34,7 @@
 - `/health` 健康检查
 - `/admin` 记忆调试页
 - `/admin/memory` 记忆调试接口
+- `/admin/memory/facts` 人物经历查看 / 手动写入
 - `/admin/training` 训练样本查看
   - 可加 `status=unlabeled` 只看未标注样本
 - `/admin/training/export` 训练集导出
@@ -91,7 +92,8 @@
 6. 打开 `/health` 做一次在线检查
 7. 打开 `/admin` 验证后台页
 8. 用 `/admin/memory?key=...&chat_user_id=...` 看一条真实用户数据
-9. 如果线上正常，再补一次实际 webhook 回放
+9. 用 `/admin/memory/facts?key=...&chat_user_id=...` 维护一条人物经历
+10. 如果线上正常，再补一次实际 webhook 回放
 
 ### 4.1 身份追问策略
 
@@ -139,7 +141,8 @@ node tests/smoke.mjs
 1. `GET /health` 是否返回正常
 2. `GET /admin` 是否能打开
 3. `GET /admin/memory?key=...&chat_user_id=...` 是否能返回完整调试快照
-4. `POST /webhook/salesmartly` 是否能接收文本消息
+4. `GET /admin/memory/facts?key=...&chat_user_id=...` 是否能看到人物经历
+5. `POST /webhook/salesmartly` 是否能接收文本消息
 
 ## 6. 源码结构
 
@@ -227,6 +230,8 @@ node tests/smoke.mjs
 - `conversation_summaries`
 - `training_samples`
 - `training_feedback`
+
+`memory_facts` 同时承担结构化事实和人物经历。人物经历建议统一写在这里，不要拆成另一张表，避免上下文读取和后台维护分裂。
 
 ### 9.2 Vectorize
 

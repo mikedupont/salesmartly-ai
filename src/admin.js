@@ -105,6 +105,10 @@ export function renderAdminPage() {
           <input id="facts_limit" type="number" min="1" max="100" value="30" />
         </div>
         <div>
+          <label>经历历史条数</label>
+          <input id="fact_history_limit" type="number" min="1" max="200" value="50" />
+        </div>
+        <div>
           <label>消息条数</label>
           <input id="messages_limit" type="number" min="1" max="100" value="20" />
         </div>
@@ -133,6 +137,51 @@ export function renderAdminPage() {
     <div class="card">
       <div class="section-title">调试概览</div>
       <div id="summary" class="status">等待加载...</div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">人物经历</div>
+      <div class="small">建议用 experience_* 作为 key，例如 experience_work、experience_education、experience_life_event。</div>
+      <div style="height:12px;"></div>
+      <div class="grid">
+        <div>
+          <label>经历分类</label>
+          <select id="experienceFactKey">
+            <option value="experience_work">experience_work</option>
+            <option value="experience_education">experience_education</option>
+            <option value="experience_life_event">experience_life_event</option>
+            <option value="experience_family">experience_family</option>
+            <option value="experience_relationship">experience_relationship</option>
+            <option value="experience_other">experience_other</option>
+          </select>
+        </div>
+        <div>
+          <label>置信度</label>
+          <input id="experienceConfidence" type="number" min="0" max="1" step="0.05" value="0.8" />
+        </div>
+        <div>
+          <label>来源消息 ID</label>
+          <input id="experienceSourceMessageId" placeholder="可选" />
+        </div>
+        <div>
+          <label>来源角色</label>
+          <select id="experienceSourceMessageRole">
+            <option value="customer">customer</option>
+            <option value="assistant">assistant</option>
+          </select>
+        </div>
+        <div style="grid-column: 1 / -1;">
+          <label>经历内容</label>
+          <textarea id="experienceFactValue" placeholder="例如：大学毕业后做了 8 年销售，最近在考虑转行。"></textarea>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <button id="saveExperienceFact">保存经历</button>
+        <button id="reloadExperienceFacts" class="secondary">刷新经历</button>
+      </div>
+      <div class="small" style="margin-top:10px;">保存后会写入 memory_facts，并在下方列表里立即显示。</div>
+      <div style="height:12px;"></div>
+      <div id="experienceFacts" class="table"></div>
     </div>
 
     <div class="card">
@@ -389,9 +438,15 @@ export function renderAdminPage() {
     $("chat_user_id").value = localStorage.getItem("salesmartly_admin_chat_user_id") || "";
     $("query").value = localStorage.getItem("salesmartly_admin_query") || "";
     $("facts_limit").value = localStorage.getItem("salesmartly_admin_facts_limit") || "30";
+    $("fact_history_limit").value = localStorage.getItem("salesmartly_admin_fact_history_limit") || "50";
     $("messages_limit").value = localStorage.getItem("salesmartly_admin_messages_limit") || "20";
     $("summaries_limit").value = localStorage.getItem("salesmartly_admin_summaries_limit") || "10";
     $("vector_limit").value = localStorage.getItem("salesmartly_admin_vector_limit") || "8";
+    $("experienceFactKey").value = localStorage.getItem("salesmartly_admin_experience_fact_key") || "experience_work";
+    $("experienceConfidence").value = localStorage.getItem("salesmartly_admin_experience_confidence") || "0.8";
+    $("experienceSourceMessageId").value = localStorage.getItem("salesmartly_admin_experience_source_message_id") || "";
+    $("experienceSourceMessageRole").value = localStorage.getItem("salesmartly_admin_experience_source_message_role") || "customer";
+    $("experienceFactValue").value = localStorage.getItem("salesmartly_admin_experience_fact_value") || "";
     $("trainingStatus").value = localStorage.getItem("salesmartly_admin_training_status") || "unlabeled";
     $("scenarioClass").value = localStorage.getItem("salesmartly_admin_scenario_class") || "all";
     $("flirtflipDatasetKind").value = localStorage.getItem("salesmartly_admin_flirtflip_dataset_kind") || "all";
@@ -409,9 +464,15 @@ export function renderAdminPage() {
       localStorage.setItem("salesmartly_admin_chat_user_id", $("chat_user_id").value.trim());
       localStorage.setItem("salesmartly_admin_query", $("query").value.trim());
       localStorage.setItem("salesmartly_admin_facts_limit", $("facts_limit").value.trim() || "30");
+      localStorage.setItem("salesmartly_admin_fact_history_limit", $("fact_history_limit").value.trim() || "50");
       localStorage.setItem("salesmartly_admin_messages_limit", $("messages_limit").value.trim() || "20");
       localStorage.setItem("salesmartly_admin_summaries_limit", $("summaries_limit").value.trim() || "10");
       localStorage.setItem("salesmartly_admin_vector_limit", $("vector_limit").value.trim() || "8");
+      localStorage.setItem("salesmartly_admin_experience_fact_key", $("experienceFactKey").value.trim() || "experience_work");
+      localStorage.setItem("salesmartly_admin_experience_confidence", $("experienceConfidence").value.trim() || "0.8");
+      localStorage.setItem("salesmartly_admin_experience_source_message_id", $("experienceSourceMessageId").value.trim() || "");
+      localStorage.setItem("salesmartly_admin_experience_source_message_role", $("experienceSourceMessageRole").value.trim() || "customer");
+      localStorage.setItem("salesmartly_admin_experience_fact_value", $("experienceFactValue").value.trim() || "");
       localStorage.setItem("salesmartly_admin_training_status", $("trainingStatus").value.trim() || "unlabeled");
       localStorage.setItem("salesmartly_admin_scenario_class", $("scenarioClass").value.trim() || "all");
       localStorage.setItem("salesmartly_admin_flirtflip_dataset_kind", $("flirtflipDatasetKind").value.trim() || "all");
@@ -474,6 +535,36 @@ export function renderAdminPage() {
         "</div>",
         rows,
       ].join("");
+    }
+
+    function renderExperienceFacts(items) {
+      if (!items || !items.length) {
+        return '<div class="small">暂无人物经历</div>';
+      }
+      return renderFactsTable(items, "暂无人物经历");
+    }
+
+    async function loadExperienceFacts() {
+      const key = $("key").value.trim();
+      const chat_user_id = $("chat_user_id").value.trim();
+      const limit = $("fact_history_limit").value.trim() || "50";
+      if (!chat_user_id) {
+        $("experienceFacts").innerHTML = '<div class="small">请先填写 chat_user_id</div>';
+        return;
+      }
+
+      const url = new URL(location.origin + "/admin/memory/facts");
+      if (key) url.searchParams.set("key", key);
+      url.searchParams.set("chat_user_id", chat_user_id);
+      url.searchParams.set("limit", limit);
+      url.searchParams.set("key_prefix", "experience_");
+      const res = await fetch(url.toString(), { headers: { "x-admin-key": key } });
+      const data = await res.json().catch(() => ({ ok: false, error: "Invalid JSON" }));
+      if (!res.ok || !data.ok) {
+        $("experienceFacts").innerHTML = '<div class="small">加载经历失败：' + escapeHtml(data.error || String(res.status)) + '</div>';
+        return;
+      }
+      $("experienceFacts").innerHTML = renderExperienceFacts(data.facts || []);
     }
 
     function renderTrainingSample(item) {
@@ -622,6 +713,8 @@ export function renderAdminPage() {
       if (chat_user_id) url.searchParams.set("chat_user_id", chat_user_id);
       if (query) url.searchParams.set("q", query);
       if (facts_limit) url.searchParams.set("facts_limit", facts_limit);
+      const fact_history_limit = $("fact_history_limit").value.trim();
+      if (fact_history_limit) url.searchParams.set("fact_history_limit", fact_history_limit);
       if (messages_limit) url.searchParams.set("messages_limit", messages_limit);
       if (summaries_limit) url.searchParams.set("summaries_limit", summaries_limit);
       if (vector_limit) url.searchParams.set("vector_limit", vector_limit);
@@ -685,6 +778,7 @@ export function renderAdminPage() {
             body: escapeHtml(summary.summaryText || ""),
           })))
         : '<div class="small">暂无数据</div>';
+      await loadExperienceFacts();
       $("vectorQueryTexts").innerHTML = data.ok
         ? renderList((data.vectorQueryTexts || []).map((text, index) => ({
             title: "probe " + (index + 1),
@@ -905,7 +999,7 @@ export function renderAdminPage() {
       }
       const label = kind === "flirtflip" ? "FlirtFlip" : "EmpatheticDialogues";
       const action = dryRun ? "预览" : "执行";
-      alert(`${label} ${action}清理：扫描 ${data.scanned || 0}，保留 ${data.kept || 0}，${dryRun ? "可删" : "已删"} ${data.deleted || 0}`);
+      alert(label + " " + action + "清理：扫描 " + (data.scanned || 0) + "，保留 " + (data.kept || 0) + "，" + (dryRun ? "可删" : "已删") + " " + (data.deleted || 0));
       await loadMemory();
     }
 
@@ -1056,6 +1150,52 @@ export function renderAdminPage() {
       await loadMemory();
     }
 
+    async function saveExperienceFact() {
+      syncStorage();
+      const key = $("key").value.trim();
+      const chat_user_id = $("chat_user_id").value.trim();
+      const factKey = $("experienceFactKey").value.trim();
+      const factValue = $("experienceFactValue").value.trim();
+      const confidence = $("experienceConfidence").value.trim();
+      const sourceMessageId = $("experienceSourceMessageId").value.trim();
+      const sourceMessageRole = $("experienceSourceMessageRole").value.trim();
+      if (!chat_user_id) {
+        alert("请先填写 chat_user_id");
+        return;
+      }
+      if (!factKey) {
+        alert("请选择经历分类");
+        return;
+      }
+      if (!factValue) {
+        alert("请先填写经历内容");
+        return;
+      }
+
+      const res = await fetch(location.origin + "/admin/memory/facts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": key,
+        },
+        body: JSON.stringify({
+          chat_user_id,
+          fact_key: factKey,
+          fact_value: factValue,
+          confidence,
+          source_message_id: sourceMessageId,
+          source_message_role: sourceMessageRole,
+        }),
+      });
+      const data = await res.json().catch(() => ({ ok: false, error: "Invalid JSON" }));
+      if (!res.ok || !data.ok) {
+        alert("保存经历失败: " + (data.error || res.status));
+        return;
+      }
+      alert("经历已保存");
+      await loadMemory();
+    }
+
     async function annotateTrainingSample(sampleId, payload) {
       syncStorage();
       const key = $("key").value.trim();
@@ -1091,6 +1231,9 @@ export function renderAdminPage() {
         sampleStage: sample?.sampleStage || "new",
       });
     };
+
+    window.saveExperienceFact = saveExperienceFact;
+    window.reloadExperienceFacts = loadExperienceFacts;
 
     window.applyTrainingChoice = async (sampleId, chosenIndex) => {
       const sample = window.__trainingSamplesById?.[String(sampleId)];
@@ -1135,6 +1278,8 @@ export function renderAdminPage() {
 
     $("load").addEventListener("click", loadMemory);
     $("save").addEventListener("click", () => { syncStorage(); alert("已保存到本机"); });
+    $("saveExperienceFact").addEventListener("click", saveExperienceFact);
+    $("reloadExperienceFacts").addEventListener("click", loadExperienceFacts);
     $("trainingStatus").addEventListener("change", () => { syncStorage(); loadMemory(); });
     $("flirtflipDatasetKind").addEventListener("change", () => { syncStorage(); loadMemory(); });
     $("flirtflipRecordType").addEventListener("change", () => { syncStorage(); loadMemory(); });
@@ -1174,9 +1319,15 @@ export function renderAdminPage() {
       localStorage.removeItem("salesmartly_admin_chat_user_id");
       localStorage.removeItem("salesmartly_admin_query");
       localStorage.removeItem("salesmartly_admin_facts_limit");
+      localStorage.removeItem("salesmartly_admin_fact_history_limit");
       localStorage.removeItem("salesmartly_admin_messages_limit");
       localStorage.removeItem("salesmartly_admin_summaries_limit");
       localStorage.removeItem("salesmartly_admin_vector_limit");
+      localStorage.removeItem("salesmartly_admin_experience_fact_key");
+      localStorage.removeItem("salesmartly_admin_experience_confidence");
+      localStorage.removeItem("salesmartly_admin_experience_source_message_id");
+      localStorage.removeItem("salesmartly_admin_experience_source_message_role");
+      localStorage.removeItem("salesmartly_admin_experience_fact_value");
       localStorage.removeItem("salesmartly_admin_flirtflip_dataset_kind");
       localStorage.removeItem("salesmartly_admin_flirtflip_record_type");
       localStorage.removeItem("salesmartly_admin_flirtflip_source_kind");
@@ -1190,9 +1341,15 @@ export function renderAdminPage() {
       $("chat_user_id").value = "";
       $("query").value = "";
       $("facts_limit").value = "30";
+      $("fact_history_limit").value = "50";
       $("messages_limit").value = "20";
       $("summaries_limit").value = "10";
       $("vector_limit").value = "8";
+      $("experienceFactKey").value = "experience_work";
+      $("experienceConfidence").value = "0.8";
+      $("experienceSourceMessageId").value = "";
+      $("experienceSourceMessageRole").value = "customer";
+      $("experienceFactValue").value = "";
       $("summary").textContent = "等待加载...";
       $("output").textContent = "{}";
       $("requestInfo").textContent = "{}";
@@ -1203,6 +1360,7 @@ export function renderAdminPage() {
       $("summaries").innerHTML = "";
       $("vectorQueryTexts").innerHTML = "";
       $("vectors").innerHTML = "";
+      $("experienceFacts").innerHTML = "";
       $("flirtflipStats").innerHTML = "";
       $("flirtflipSamples").innerHTML = "";
       $("flirtflipImportJsonl").value = "";
@@ -1272,7 +1430,7 @@ export async function buildMemoryDebugResponse(env, { chatUserId, query, embeddi
     referenceExamples: bundle.referenceExamples || [],
     relationshipState,
     recentMessages,
-    formatRecentConversation: (messages) => (messages || []).map((message) => `${message.role}: ${message.content}`).join("\n"),
+    formatRecentConversation: (messages) => (messages || []).map((message) => message.role + ": " + message.content).join("\n"),
     formatMemoryFacts,
     formatVectorMemories,
     formatReferenceExamples,

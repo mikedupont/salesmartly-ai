@@ -41,6 +41,7 @@
 - 支持自动回复和人工接管式扩展
 - 支持 `/admin` 记忆查看页
 - 支持 `/admin/memory` 记忆调试接口
+- 支持 `/admin/memory/facts` 人物经历查看 / 手动写入
 - 支持 `/admin/training` 训练样本查看
 - 支持 `/admin/training/export` 训练集导出
 - 支持 `/admin/training/feedback` 偏好反馈写回
@@ -95,15 +96,22 @@
 
 如果你要继续按现在这条路线落地训练闭环，可以直接看 [`docs/TRAINING_IMPLEMENTATION.md`](docs/TRAINING_IMPLEMENTATION.md)。
 
-当前 FlirtFlip 在线总量已经补到 10000 条，后台会按三层显示：
+当前公开对话库已做过一次清理，当前总量是：
 
-当前 FlirtFlip 已按三层整理：
+- `FlirtFlip`：`9996` 条
+- `EmpatheticDialogues`：`9605` 条
+
+当前 FlirtFlip 在线数据按三层显示：
 
 - `seed`：原始 FlirtFlip 双风格展开样本
 - `supplement`：公开补充语料，作为风格补位
 - `final`：更保守的 gentle 路线，只保留稳定版本
 
 其中 final 版只保留更保守的 gentle 路线，适合先做基础风格对齐；seed 版保留 gentle / playful 两种正向风格和对应偏好对。
+
+这两张公开表已经做过一次基础清理，删除了重复、噪声、过短和明显不合适的样本，后续可以继续按同一规则增量清理。
+
+人物经历这类长期记忆不要混进公开训练语料，应该单独写进 `memory_facts`，这样可以在后台手动维护，也能在对话上下文里被优先读取。
 
 这条路线的目标不是“彻底消灭 AI”，而是让系统更稳定地表现成：
 
@@ -141,6 +149,12 @@ SaleSmartly webhook
 
 - `GET /admin/memory?key=...&chat_user_id=...&q=...`
   - 查看指定用户的事实记忆、关系状态、摘要和向量召回
+
+- `GET /admin/memory/facts?key=...&chat_user_id=...`
+  - 查看指定用户的人物经历事实
+
+- `POST /admin/memory/facts?key=...`
+  - 手动写入一条人物经历到 `memory_facts`
 
 - `GET /admin/training?key=...&chat_user_id=...`
   - 查看训练样本和偏好反馈统计，可加 `status=unlabeled` 只看未标注样本
