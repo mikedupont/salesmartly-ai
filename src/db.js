@@ -644,14 +644,36 @@ export async function relabelFlirtFlipSamples(env, { fromDatasetKind = "", toDat
   }
 
   const result = await env.DB.prepare(`
-    UPDATE flirtflip_samples
-    SET dataset_kind = ?, updated_at = CURRENT_TIMESTAMP
+    SELECT id, payload_json
+    FROM flirtflip_samples
     WHERE ${conditions.join(" AND ")};
   `)
-    .bind(nextDatasetKind, ...params)
-    .run();
+    .bind(...params)
+    .all();
 
-  return { updated: Number(result?.meta?.changes || 0) };
+  const rows = result.results || [];
+  if (!rows.length) {
+    return { updated: 0 };
+  }
+
+  const statements = rows.map((row) => {
+    const payload = safeJsonObject(row.payload_json);
+    if (payload && typeof payload.metadata === "object" && !Array.isArray(payload.metadata)) {
+      payload.metadata = {
+        ...payload.metadata,
+        clean_stage: nextDatasetKind,
+      };
+    }
+
+    return env.DB.prepare(`
+      UPDATE flirtflip_samples
+      SET dataset_kind = ?, payload_json = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?;
+    `).bind(nextDatasetKind, JSON.stringify(payload || {}), row.id);
+  });
+
+  await env.DB.batch(statements);
+  return { updated: rows.length };
 }
 
 export async function getFlirtFlipStats(env) {
