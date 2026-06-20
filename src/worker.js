@@ -27,10 +27,13 @@ import {
   recordTrainingFeedback,
   updateTrainingSampleAnnotation,
   getTrainingSamples,
+  getTrainingSamplesForExport,
   getTrainingStats,
   buildTrainingSftRecord,
   buildTrainingDpoRecords,
   buildTrainingScenarioClass,
+  getAutomationState,
+  setAutomationState,
   getFlirtFlipSamples,
   getFlirtFlipStats,
   upsertFlirtFlipSamples,
@@ -176,6 +179,392 @@ function parseCsvRows(text) {
   });
 }
 
+function parsePositiveInt(value, fallback, min = 1, max = Number.POSITIVE_INFINITY) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return fallback;
+  return Math.min(Math.max(Math.floor(number), min), max);
+}
+
+function parseCsvList(value = "") {
+  return String(value || "")
+    .split(",")
+    .map((item) => cleanText(item).toLowerCase())
+    .filter((item) => item && item !== "all");
+}
+
+function parseRatio(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return fallback;
+  return number;
+}
+
+function normalizeRatioMix({ empathetic = 0.6, flirtflip = 0.3, real = 0.1 } = {}) {
+  const mix = {
+    empathetic: parseRatio(empathetic, 0.6),
+    flirtflip: parseRatio(flirtflip, 0.3),
+    real: parseRatio(real, 0.1),
+  };
+  const total = mix.empathetic + mix.flirtflip + mix.real;
+  if (total <= 0) {
+    return { empathetic: 0.6, flirtflip: 0.3, real: 0.1 };
+  }
+  return {
+    empathetic: mix.empathetic / total,
+    flirtflip: mix.flirtflip / total,
+    real: mix.real / total,
+  };
+}
+
+function allocateRatioCounts(total, mix) {
+  const normalized = normalizeRatioMix(mix);
+  const targets = {
+    empathetic: Math.floor(total * normalized.empathetic),
+    flirtflip: Math.floor(total * normalized.flirtflip),
+    real: Math.floor(total * normalized.real),
+  };
+  let remaining = Math.max(total - targets.empathetic - targets.flirtflip - targets.real, 0);
+  const order = [
+    ["empathetic", normalized.empathetic],
+    ["flirtflip", normalized.flirtflip],
+    ["real", normalized.real],
+  ].sort((left, right) => right[1] - left[1]);
+  for (const [source] of order) {
+    if (remaining <= 0) break;
+    targets[source] += 1;
+    remaining -= 1;
+  }
+  return targets;
+}
+
+async function sha256Hex(text = "") {
+  const bytes = new TextEncoder().encode(String(text || ""));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function pickTopSamples(items = [], limit = 0) {
+  if (!Array.isArray(items) || !items.length) return [];
+  if (!Number.isFinite(Number(limit)) || Number(limit) <= 0) return [...items];
+  return items.slice(0, Math.min(Math.floor(Number(limit)), items.length));
+}
+
+function buildFlirtFlipTrainingSample(row = {}) {
+  const payload = row.payload || {};
+  const metadata = payload.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata) ? payload.metadata : {};
+  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  const userMessage = cleanText(row.preview?.user || messages.find((item) => item?.role === "user")?.content || "");
+  const assistantMessage = cleanText(row.preview?.assistant || messages.find((item) => item?.role === "assistant")?.content || "");
+  const prompt = cleanText(payload.prompt || "");
+  const chosen = cleanText(payload.chosen || assistantMessage);
+  const rejected = cleanText(payload.rejected || "");
+  const isDpo = cleanText(row.recordType || payload.type || "").toLowerCase() === "dpo";
+  const datasetKind = cleanText(row.datasetKind || metadata.clean_stage || "seed").toLowerCase();
+  const sampleStage = datasetKind === "final" ? "trusted" : datasetKind === "supplement" ? "familiar" : "new";
+  const sampleIntent = cleanText(row.sampleIntent || metadata.sample_intent || "smalltalk");
+  const scenarioClass = cleanText(row.scenario || metadata.scenario || "");
+
+  return {
+    chatUserId: `public:flirtflip:${cleanText(row.sourceKind || "dataset") || "dataset"}`,
+    sessionId: `public:flirtflip:${datasetKind}`,
+    sourceMessageId: `flirtflip:${String(row.id || "")}`,
+    promptVersion: "public-v1",
+    sampleStage,
+    sampleIntent,
+    scenarioClass,
+    customerInput: userMessage || prompt,
+    assistantOutput: assistantMessage || chosen,
+    candidateReplies: isDpo ? [chosen || assistantMessage, rejected || assistantMessage] : [assistantMessage || chosen],
+    chosenReplyIndex: 0,
+    questionBudget: 0,
+    openingStyle: "natural",
+    closingStyle: "open_finish",
+    strategySnapshot: {
+      sourceKind: cleanText(row.sourceKind || ""),
+      datasetKind,
+      recordType: cleanText(row.recordType || ""),
+      scenario: scenarioClass,
+      publicSources: Array.isArray(payload.metadata?.public_sources) ? payload.metadata.public_sources : [],
+    },
+    contextSnapshot: {
+      source: "flirtflip",
+      payload,
+      metadata,
+    },
+  };
+}
+
+function buildEmpatheticTrainingSample(row = {}) {
+  const payload = row.payload || {};
+  const metadata = payload.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata) ? payload.metadata : {};
+  const split = cleanText(row.split || metadata.dataset_split || "train").toLowerCase();
+  const context = cleanText(row.context || metadata.context || "");
+  const tags = cleanText(row.tags || metadata.tags || "");
+  const prompt = cleanText(row.prompt || "");
+  const utterance = cleanText(row.utterance || row.preview?.assistant || "");
+
+  return {
+    chatUserId: `public:empathetic:${cleanText(row.sourceKind || "dataset") || "dataset"}`,
+    sessionId: `public:empathetic:${split}`,
+    sourceMessageId: `empathetic:${String(row.id || "")}`,
+    promptVersion: "public-v1",
+    sampleStage: split === "test" ? "familiar" : "new",
+    sampleIntent: "support",
+    scenarioClass: "",
+    customerInput: prompt || cleanText(row.preview?.user || ""),
+    assistantOutput: utterance || cleanText(row.preview?.assistant || ""),
+    candidateReplies: [utterance || cleanText(row.preview?.assistant || "")],
+    chosenReplyIndex: 0,
+    questionBudget: 1,
+    openingStyle: "warm_acknowledgement",
+    closingStyle: "open_finish",
+    strategySnapshot: {
+      sourceKind: cleanText(row.sourceKind || ""),
+      split,
+      context,
+      tags,
+    },
+    contextSnapshot: {
+      source: "empathetic",
+      payload,
+      metadata,
+    },
+  };
+}
+
+async function buildTrainingAutomationBundle(env, { limit = 1000, status = "labeled", scenarioClasses = [] } = {}) {
+  const normalizedScenarioClasses = Array.isArray(scenarioClasses)
+    ? scenarioClasses.map((item) => cleanText(item).toLowerCase()).filter(Boolean)
+    : [];
+  const parsedLimit = parsePositiveInt(limit, 1000, 1, 5000);
+  const mix = allocateRatioCounts(parsedLimit, {
+    empathetic: env.TRAINING_AUTO_EMPATHETIC_RATIO || 0.6,
+    flirtflip: env.TRAINING_AUTO_FLIRTFLIP_RATIO || 0.3,
+    real: env.TRAINING_AUTO_REAL_RATIO || 0.1,
+  });
+
+  const fetchLimit = Math.min(Math.max(parsedLimit * 2, 200), 5000);
+  const [realSamples, flirtflipSamples, empatheticSamples] = await Promise.all([
+    getTrainingSamplesForExport(env, {
+      limit: fetchLimit,
+      status,
+      scenarioClasses: normalizedScenarioClasses,
+    }),
+    getFlirtFlipSamples(env, fetchLimit, {
+      datasetKind: "all",
+      recordType: "all",
+    }),
+    getEmpatheticDialogueSamples(env, fetchLimit, {
+      split: "all",
+      context: "",
+    }),
+  ]);
+
+  const convertedReal = (realSamples || []).filter((sample) => {
+    if (!normalizedScenarioClasses.length) return true;
+    const scenarioClass = buildTrainingScenarioClass(sample);
+    return normalizedScenarioClasses.includes(cleanText(scenarioClass).toLowerCase());
+  });
+  const convertedFlirtflip = (flirtflipSamples || [])
+    .map((row) => buildFlirtFlipTrainingSample(row))
+    .filter((sample) => !normalizedScenarioClasses.length || normalizedScenarioClasses.includes(cleanText(buildTrainingScenarioClass(sample)).toLowerCase()));
+  const convertedEmpathetic = (empatheticSamples || [])
+    .map((row) => buildEmpatheticTrainingSample(row))
+    .filter((sample) => !normalizedScenarioClasses.length || normalizedScenarioClasses.includes(cleanText(buildTrainingScenarioClass(sample)).toLowerCase()));
+
+  const selectedReal = pickTopSamples(convertedReal, mix.real);
+  const selectedFlirtflip = pickTopSamples(convertedFlirtflip, mix.flirtflip);
+  const selectedEmpathetic = pickTopSamples(convertedEmpathetic, mix.empathetic);
+
+  const usedCounts = {
+    real: selectedReal.length,
+    flirtflip: selectedFlirtflip.length,
+    empathetic: selectedEmpathetic.length,
+  };
+
+  let combinedSamples = [...selectedEmpathetic, ...selectedFlirtflip, ...selectedReal];
+  const remaining = Math.max(parsedLimit - combinedSamples.length, 0);
+  if (remaining > 0) {
+    const fallbackPools = [
+      { key: "empathetic", pool: convertedEmpathetic },
+      { key: "flirtflip", pool: convertedFlirtflip },
+      { key: "real", pool: convertedReal },
+    ];
+    const usedIds = new Set(combinedSamples.map((sample) => `${sample.chatUserId || ""}|${sample.sourceMessageId || ""}|${sample.customerInput || ""}`));
+    for (const { key, pool } of fallbackPools) {
+      if (combinedSamples.length >= parsedLimit) break;
+      const unused = pool.filter((sample) => !usedIds.has(`${sample.chatUserId || ""}|${sample.sourceMessageId || ""}|${sample.customerInput || ""}`));
+      const canTake = Math.min(parsedLimit - combinedSamples.length, unused.length);
+      if (canTake <= 0) continue;
+      const extra = unused.slice(0, canTake);
+      extra.forEach((sample) => usedIds.add(`${sample.chatUserId || ""}|${sample.sourceMessageId || ""}|${sample.customerInput || ""}`));
+      combinedSamples.push(...extra);
+      usedCounts[key] += extra.length;
+    }
+  }
+
+  const realRecords = [];
+  const flirtflipRecords = [];
+  const empatheticRecords = [];
+
+  for (const sample of combinedSamples) {
+    if (sample.chatUserId?.startsWith("public:flirtflip")) {
+      const sft = buildTrainingSftRecord(sample);
+      flirtflipRecords.push(sft);
+      const dpo = buildTrainingDpoRecords(sample);
+      if (dpo.length) flirtflipRecords.push(...dpo);
+      continue;
+    }
+    if (sample.chatUserId?.startsWith("public:empathetic")) {
+      empatheticRecords.push(buildTrainingSftRecord(sample));
+      continue;
+    }
+    realRecords.push(buildTrainingSftRecord(sample));
+    const dpo = buildTrainingDpoRecords(sample);
+    if (dpo.length) realRecords.push(...dpo);
+  }
+
+  const records = [...empatheticRecords, ...flirtflipRecords, ...realRecords];
+  const jsonl = records.map((record) => JSON.stringify(record)).join("\n");
+  return {
+    ok: true,
+    config: {
+      limit: parsedLimit,
+      status,
+      scenarioClasses: normalizedScenarioClasses,
+      mix,
+    },
+    sourceCounts: {
+      real: usedCounts.real,
+      flirtflip: usedCounts.flirtflip,
+      empathetic: usedCounts.empathetic,
+    },
+    recordCounts: {
+      total: records.length,
+      sft: records.filter((item) => item.type === "sft").length,
+      dpo: records.filter((item) => item.type === "dpo").length,
+    },
+    jsonl,
+    records,
+    sourceSizes: {
+      real: convertedReal.length,
+      flirtflip: convertedFlirtflip.length,
+      empathetic: convertedEmpathetic.length,
+    },
+  };
+}
+
+async function runTrainingAutomation(env, { force = false, reason = "scheduled" } = {}) {
+  await initDb(env);
+
+  const enabled = force || String(env.TRAINING_AUTO_EXPORT || "").toLowerCase() === "true" || String(env.TRAINING_AUTO_ENABLED || "").toLowerCase() === "true";
+  if (!enabled) {
+    return { ok: true, skipped: true, reason: "disabled" };
+  }
+
+  const triggerUrl = cleanText(env.TRAINING_TRIGGER_URL || env.TRAINING_AUTO_TRIGGER_URL || "");
+  const previewOnly = String(env.TRAINING_AUTO_PREVIEW_ONLY || "").toLowerCase() === "true";
+  const autoStatus = cleanText(env.TRAINING_AUTO_STATUS || "labeled") || "labeled";
+  const autoLimit = parsePositiveInt(env.TRAINING_AUTO_LIMIT || 1000, 1000, 1, 5000);
+  const autoScenarioClasses = parseCsvList(env.TRAINING_AUTO_SCENARIO_CLASSES || "");
+
+  const bundle = await buildTrainingAutomationBundle(env, {
+    limit: autoLimit,
+    status: autoStatus,
+    scenarioClasses: autoScenarioClasses,
+  });
+  if (!bundle.records.length) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "empty_bundle",
+      bundle: {
+        config: bundle.config,
+        sourceCounts: bundle.sourceCounts,
+        recordCounts: bundle.recordCounts,
+      },
+    };
+  }
+  const hash = await sha256Hex(bundle.jsonl);
+  const lastSuccessHash = await getAutomationState(env, "training_auto:last_success_hash");
+  const lastPreparedHash = await getAutomationState(env, "training_auto:last_prepared_hash");
+  const compareHash = triggerUrl ? lastSuccessHash : lastPreparedHash;
+
+  if (!force && compareHash && compareHash === hash) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "unchanged",
+      hash,
+      bundle: {
+        config: bundle.config,
+        sourceCounts: bundle.sourceCounts,
+        recordCounts: bundle.recordCounts,
+      },
+    };
+  }
+
+  const payload = {
+    kind: "salesmartly-training-bundle",
+    reason,
+    hash,
+    createdAt: new Date().toISOString(),
+    config: bundle.config,
+    sourceCounts: bundle.sourceCounts,
+    recordCounts: bundle.recordCounts,
+    records: bundle.records,
+    jsonl: bundle.jsonl,
+  };
+
+  if (triggerUrl && !previewOnly) {
+    const headers = {
+      "Content-Type": "application/json",
+    };
+    if (env.TRAINING_TRIGGER_TOKEN) {
+      headers.Authorization = `Bearer ${env.TRAINING_TRIGGER_TOKEN}`;
+    }
+
+    const response = await fetch(triggerUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Training trigger failed: ${response.status} ${response.statusText}${text ? ` - ${text.slice(0, 200)}` : ""}`);
+    }
+
+    await setAutomationState(env, "training_auto:last_success_hash", hash);
+    await setAutomationState(env, "training_auto:last_success_at", new Date().toISOString());
+    await setAutomationState(env, "training_auto:last_success_summary", JSON.stringify(bundle.recordCounts));
+    return {
+      ok: true,
+      triggered: true,
+      hash,
+      bundle: {
+        config: bundle.config,
+        sourceCounts: bundle.sourceCounts,
+        recordCounts: bundle.recordCounts,
+      },
+    };
+  }
+
+  await setAutomationState(env, "training_auto:last_prepared_hash", hash);
+  await setAutomationState(env, "training_auto:last_prepared_at", new Date().toISOString());
+  await setAutomationState(env, "training_auto:last_prepared_summary", JSON.stringify(bundle.recordCounts));
+  return {
+    ok: true,
+    prepared: true,
+    previewOnly: !triggerUrl || previewOnly,
+    hash,
+    bundle: {
+      config: bundle.config,
+      sourceCounts: bundle.sourceCounts,
+      recordCounts: bundle.recordCounts,
+    },
+  };
+}
+
 async function fetchFlirtFlipSourceRecords(limit = 0) {
   const response = await fetch(FLIRTFLIP_SOURCE_URL);
   if (!response.ok) {
@@ -263,6 +652,7 @@ export default {
           "/admin/memory/facts?key=YOUR_KEY&chat_user_id=...",
           "/admin/training?key=YOUR_KEY&chat_user_id=...",
           "/admin/training/export?key=YOUR_KEY&chat_user_id=...&scenario_class=work_fatigue",
+          "/admin/training/auto?key=YOUR_KEY",
           "/admin/flirtflip?key=YOUR_KEY",
           "/admin/flirtflip/export?key=YOUR_KEY&format=jsonl",
           "/admin/flirtflip/import?key=YOUR_KEY",
@@ -947,6 +1337,59 @@ export default {
       return jsonResponse({ ok: true, result });
     }
 
+    if (url.pathname === "/admin/training/auto" && (request.method === "GET" || request.method === "POST")) {
+      const auth = requireAdminKey(env, request, url);
+      if (!auth.ok) return auth.response;
+
+      await initDb(env);
+
+      if (request.method === "GET") {
+        const limit = parsePositiveInt(url.searchParams.get("limit") || env.TRAINING_AUTO_LIMIT || 1000, 1000, 1, 5000);
+        const status = cleanText(url.searchParams.get("status") || env.TRAINING_AUTO_STATUS || "labeled") || "labeled";
+        const scenarioClasses = parseCsvList(url.searchParams.get("scenario_classes") || env.TRAINING_AUTO_SCENARIO_CLASSES || "");
+        const bundle = await buildTrainingAutomationBundle(env, {
+          limit,
+          status,
+          scenarioClasses,
+        });
+        return jsonResponse({
+          ok: true,
+          enabled: String(env.TRAINING_AUTO_EXPORT || env.TRAINING_AUTO_ENABLED || "").toLowerCase() === "true",
+          triggerUrlConfigured: !!cleanText(env.TRAINING_TRIGGER_URL || env.TRAINING_AUTO_TRIGGER_URL || ""),
+          state: {
+            lastSuccessHash: await getAutomationState(env, "training_auto:last_success_hash"),
+            lastSuccessAt: await getAutomationState(env, "training_auto:last_success_at"),
+            lastPreparedHash: await getAutomationState(env, "training_auto:last_prepared_hash"),
+            lastPreparedAt: await getAutomationState(env, "training_auto:last_prepared_at"),
+          },
+          preview: {
+            config: bundle.config,
+            sourceCounts: bundle.sourceCounts,
+            sourceSizes: bundle.sourceSizes,
+            recordCounts: bundle.recordCounts,
+            hash: await sha256Hex(bundle.jsonl),
+          },
+        });
+      }
+
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        body = {};
+      }
+
+      const force = !!(body.force || body.refresh || url.searchParams.get("force") === "1");
+      const result = await runTrainingAutomation(env, {
+        force,
+        reason: "manual",
+      });
+      return jsonResponse({
+        ok: true,
+        ...result,
+      });
+    }
+
     if (url.pathname === "/admin/summarize") {
       const key = url.searchParams.get("key") || "";
       if (!env.SUMMARY_ADMIN_KEY || key !== env.SUMMARY_ADMIN_KEY) {
@@ -1209,9 +1652,18 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(
       (async () => {
-    await initDb(env);
-    const result = await summarizeActiveCustomers(env);
-    console.log("Scheduled summary result:", JSON.stringify(result));
+        await initDb(env);
+        const summaryResult = await summarizeActiveCustomers(env);
+        console.log("Scheduled summary result:", JSON.stringify(summaryResult));
+
+        const automationEnabled = String(env.TRAINING_AUTO_EXPORT || env.TRAINING_AUTO_ENABLED || "").toLowerCase() === "true";
+        if (automationEnabled) {
+          const automationResult = await runTrainingAutomation(env, {
+            force: false,
+            reason: "scheduled",
+          });
+          console.log("Scheduled training automation result:", JSON.stringify(automationResult));
+        }
       })()
     );
   },

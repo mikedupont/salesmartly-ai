@@ -44,6 +44,9 @@
 - `/admin/training/purge` 训练数据清空
   - 需要 `confirm=DELETE_TRAINING_DATA`
   - 可以按 `chat_user_id` 清空单用户训练数据，也可以清空全部训练数据
+- `/admin/training/auto` 自动训练包预览 / 手动触发
+  - 会把真实训练样本、FlirtFlip、EmpatheticDialogues 按当前默认比例自动打包
+  - 如果配置了外部训练器地址，还会自动 POST 训练包
 - `/admin/flirtflip` FlirtFlip 线上查看
 - `/admin/flirtflip/export` FlirtFlip 在线导出
 - `/admin/flirtflip/import` FlirtFlip 在线导入
@@ -64,6 +67,29 @@
   - `scripts/generate_flirtflip_seeds.mjs`
   - `scripts/import_flirtflip_online.mjs`
   - `scripts/import_flirtflip_supplement_online.mjs`
+
+## 3. 训练自动化
+
+如果你想要“全自动版”，推荐直接打开下面这组环境变量：
+
+- `TRAINING_AUTO_EXPORT=true`
+- `TRAINING_AUTO_LIMIT=1000`
+- `TRAINING_AUTO_STATUS=labeled`
+- `TRAINING_AUTO_EMPATHETIC_RATIO=0.6`
+- `TRAINING_AUTO_FLIRTFLIP_RATIO=0.3`
+- `TRAINING_AUTO_REAL_RATIO=0.1`
+- `TRAINING_TRIGGER_URL=https://你的训练器地址`
+- `TRAINING_TRIGGER_TOKEN=可选`
+
+这样 Worker 会在定时任务里自动：
+
+1. 汇总新消息
+2. 打包训练样本
+3. 组合公开数据和真实数据
+4. 计算 hash
+5. 如果有变化就自动推给外部训练器
+
+如果还没有外部训练器，`GET /admin/training/auto` 也能先看预览结果，确认数据包结构没问题。
 
 其中向量记忆已经从 D1 迁移到 Cloudflare Vectorize，不再依赖 D1 表做语义召回。
 

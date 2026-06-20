@@ -375,6 +375,14 @@ export async function initDb(env) {
     ON training_feedback(chat_user_id, created_at);
   `).run();
 
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS training_automation_state (
+      state_key TEXT PRIMARY KEY,
+      state_value TEXT DEFAULT '',
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `).run();
+
 }
 
 export async function upsertCustomer({
@@ -1526,30 +1534,8 @@ export async function updateTrainingSampleAnnotation({
   };
 }
 
-export async function getTrainingSamples(env, chatUserId, limit = 20, status = "all") {
-  const normalizedStatus = cleanText(status || "all").toLowerCase();
-  const conditions = ["chat_user_id = ?"];
-  const params = [chatUserId];
-
-  if (normalizedStatus === "labeled") {
-    conditions.push("chosen_reply_index >= 0");
-  } else if (normalizedStatus === "unlabeled") {
-    conditions.push("(chosen_reply_index < 0 OR candidate_replies_json = '[]')");
-  }
-
-  params.push(limit);
-
-  const result = await env.DB.prepare(`
-    SELECT *
-    FROM training_samples
-    WHERE ${conditions.join(" AND ")}
-    ORDER BY id DESC
-    LIMIT ?;
-  `)
-    .bind(...params)
-    .all();
-
-  return (result.results || []).map((row) => ({
+function mapTrainingSampleRow(row = {}) {
+  return {
     id: Number(row.id || 0),
     chatUserId: row.chat_user_id || "",
     sessionId: row.session_id || "",
@@ -1584,7 +1570,105 @@ export async function getTrainingSamples(env, chatUserId, limit = 20, status = "
     feedbackNote: row.feedback_note || "",
     createdAt: row.created_at || "",
     updatedAt: row.updated_at || "",
-  }));
+  };
+}
+
+export async function getTrainingSamples(env, chatUserId, limit = 20, status = "all") {
+  const normalizedStatus = cleanText(status || "all").toLowerCase();
+  const normalizedChatUserId = cleanText(chatUserId || "").toLowerCase();
+  const conditions = [];
+  const params = [];
+
+  if (normalizedChatUserId && normalizedChatUserId !== "all") {
+    conditions.push("chat_user_id = ?");
+    params.push(chatUserId);
+  }
+
+  if (normalizedStatus === "labeled") {
+    conditions.push("chosen_reply_index >= 0");
+  } else if (normalizedStatus === "unlabeled") {
+    conditions.push("(chosen_reply_index < 0 OR candidate_replies_json = '[]')");
+  }
+
+  params.push(limit);
+
+  const result = await env.DB.prepare(`
+    SELECT *
+    FROM training_samples
+    ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+    ORDER BY id DESC
+    LIMIT ?;
+  `)
+    .bind(...params)
+    .all();
+
+  return (result.results || []).map(mapTrainingSampleRow);
+}
+
+export async function getTrainingSamplesForExport(env, { limit = 1000, status = "labeled", scenarioClasses = [] } = {}) {
+  const normalizedStatus = cleanText(status || "labeled").toLowerCase();
+  const normalizedScenarioClasses = Array.isArray(scenarioClasses)
+    ? scenarioClasses.map((item) => cleanText(item).toLowerCase()).filter(Boolean)
+    : [];
+
+  const conditions = [];
+  const params = [];
+
+  if (normalizedStatus === "labeled") {
+    conditions.push("chosen_reply_index >= 0");
+  } else if (normalizedStatus === "unlabeled") {
+    conditions.push("(chosen_reply_index < 0 OR candidate_replies_json = '[]')");
+  }
+
+  if (normalizedScenarioClasses.length) {
+    conditions.push(`scenario_class IN (${normalizedScenarioClasses.map(() => "?").join(", ")})`);
+    params.push(...normalizedScenarioClasses);
+  }
+
+  params.push(limit);
+
+  const result = await env.DB.prepare(`
+    SELECT *
+    FROM training_samples
+    ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+    ORDER BY updated_at DESC, id DESC
+    LIMIT ?;
+  `)
+    .bind(...params)
+    .all();
+
+  return (result.results || []).map(mapTrainingSampleRow);
+}
+
+export async function getAutomationState(env, stateKey) {
+  const row = await env.DB.prepare(`
+    SELECT state_value
+    FROM training_automation_state
+    WHERE state_key = ?
+    LIMIT 1;
+  `)
+    .bind(cleanText(stateKey || ""))
+    .first();
+
+  return cleanText(row?.state_value || "");
+}
+
+export async function setAutomationState(env, stateKey, stateValue) {
+  const key = cleanText(stateKey || "");
+  if (!key) return null;
+  const value = cleanText(stateValue || "");
+
+  await env.DB.prepare(`
+    INSERT INTO training_automation_state (state_key, state_value, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(state_key) DO UPDATE SET
+      state_value = excluded.state_value,
+      updated_at = CURRENT_TIMESTAMP;
+  `)
+    .bind(key, value)
+    .run();
+
+  return { stateKey: key, stateValue: value };
 }
 
 export async function getTrainingStats(env, chatUserId) {
