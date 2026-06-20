@@ -44,7 +44,7 @@ import {
 } from "./training_sources.js";
 import { generateAIReply, generateCustomerSummary, generateMemoryWritePlan, getTextEmbedding, fallbackReply, extractOpenAIText } from "./ai.js";
 import { writeMemoryTurn } from "./memory_writer.js";
-import { formatMemoryFacts, formatRelationshipState, formatVectorMemories } from "./memory.js";
+import { formatMemoryFacts, formatReferenceExamples, formatRelationshipState, formatVectorMemories } from "./memory.js";
 import { SYSTEM_PROMPT } from "./prompts.js";
 import { buildMemoryDebugResponse, renderAdminPage, requireAdminKey } from "./admin.js";
 import { buildHealthSnapshot } from "./monitoring.js";
@@ -861,11 +861,13 @@ export default {
               customerSummary: memoryBundle.summary,
               memoryFacts: memoryBundle.facts,
               vectorMemories: memoryBundle.vectorMemories,
+              referenceExamples: memoryBundle.referenceExamples,
               relationshipState: memoryBundle.relationshipState,
               recentMessages,
               formatRecentConversation,
               formatMemoryFacts,
               formatVectorMemories,
+              formatReferenceExamples,
               formatRelationshipState,
             });
             const aiReply = await generateAIReply({
@@ -877,11 +879,13 @@ export default {
               customerSummary: memoryBundle.summary,
               memoryFacts: memoryBundle.facts,
               vectorMemories: memoryBundle.vectorMemories,
+              referenceExamples: memoryBundle.referenceExamples,
               relationshipState: memoryBundle.relationshipState,
               recentMessages,
               formatRecentConversation,
               formatMemoryFacts,
               formatVectorMemories,
+              formatReferenceExamples,
               formatRelationshipState,
             });
 
@@ -921,6 +925,7 @@ export default {
               generateMemoryWritePlan,
               formatMemoryFacts,
               formatVectorMemories,
+              formatReferenceExamples,
               formatRelationshipState,
               getActiveMemoryFacts: (env2, id, limit) => getActiveMemoryFacts(env2, id, limit),
               updateCustomerSummary: async ({ env: env2, chatUserId: id, summary, importantFacts, relationshipStage: stage }) => {

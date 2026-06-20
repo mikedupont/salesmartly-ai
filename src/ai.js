@@ -91,11 +91,13 @@ export async function generateAIReply({
   customerSummary,
   memoryFacts,
   vectorMemories,
+  referenceExamples,
   relationshipState,
   recentMessages,
   formatRecentConversation,
   formatMemoryFacts,
   formatVectorMemories,
+  formatReferenceExamples,
   formatRelationshipState,
 }) {
   if (!env.OPENAI_API_KEY) {
@@ -114,6 +116,7 @@ export async function generateAIReply({
     customerSummary,
     memoryFacts,
     vectorMemories,
+    referenceExamples,
     relationshipState: relationshipState || {
       stage: relationshipStage || "new",
       trust: 0.25,
@@ -123,6 +126,7 @@ export async function generateAIReply({
     formatRecentConversation,
     formatMemoryFacts,
     formatVectorMemories,
+    formatReferenceExamples,
     formatRelationshipState,
   });
 

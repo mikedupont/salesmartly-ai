@@ -28,3 +28,18 @@ export function formatVectorMemories(memories) {
     .map((memory) => `- ${memory.text} (similarity ${memory.similarity.toFixed(2)})`)
     .join("\n");
 }
+
+export function formatReferenceExamples(examples) {
+  if (!examples || examples.length === 0) {
+    return "No external reference examples selected.";
+  }
+
+  return examples
+    .map((example) => [
+      `- ${example.source || "Reference"}`,
+      `  prompt: ${example.prompt || "n/a"}`,
+      `  reply: ${example.assistant || "n/a"}`,
+      example.note ? `  note: ${example.note}` : "",
+    ].filter(Boolean).join("\n"))
+    .join("\n");
+}

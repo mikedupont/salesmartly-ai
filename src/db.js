@@ -7,6 +7,12 @@ import {
 } from "./common.js";
 import { getRelevantVectorMemoriesByTexts } from "./vectorize.js";
 
+const REFERENCE_SOURCE_TARGETS = [
+  { source: "empathetic", limit: 6 },
+  { source: "flirtflip", limit: 3 },
+  { source: "real", limit: 1 },
+];
+
 export async function initDb(env) {
   if (!env.DB) {
     throw new Error("Missing D1 binding: DB");
@@ -1907,8 +1913,103 @@ export async function upsertMemoryFact({
   return { key, value, confidence: clamp(Number(confidence || 0.5), 0, 1), status: "active" };
 }
 
+function tokenizeReferenceText(value = "") {
+  return [...new Set(
+    cleanText(value)
+      .toLowerCase()
+      .split(/[^a-z0-9]+/g)
+      .map((item) => item.trim())
+      .filter((item) => item.length >= 3)
+  )];
+}
+
+function scoreReferenceMatch(sampleText = "", queryText = "") {
+  const sampleTokens = tokenizeReferenceText(sampleText);
+  const queryTokens = tokenizeReferenceText(queryText);
+  if (!sampleTokens.length || !queryTokens.length) return 0;
+  const querySet = new Set(queryTokens);
+  let hits = 0;
+  for (const token of sampleTokens) {
+    if (querySet.has(token)) hits += 1;
+  }
+  return hits / Math.max(sampleTokens.length, queryTokens.length);
+}
+
+function selectTopReferenceSamples(samples = [], queryText = "", limit = 1, sampleTextFn = (sample) => "") {
+  return (Array.isArray(samples) ? samples : [])
+    .map((sample, index) => ({
+      sample,
+      score: scoreReferenceMatch(sampleTextFn(sample), queryText) + Math.max(0, 0.001 * (1000 - index)),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((item) => item.sample);
+}
+
+function trimReferenceText(value = "", maxLength = 180) {
+  const text = cleanText(value);
+  if (!text || text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function buildReferenceExample({ source, prompt, assistant, note = "" }) {
+  return {
+    source,
+    prompt: trimReferenceText(prompt, 180),
+    assistant: trimReferenceText(assistant, 180),
+    note: trimReferenceText(note, 120),
+  };
+}
+
+async function getReferenceExamples(env, { chatUserId, customerMessage = "", customerSummary = "" }) {
+  const queryText = cleanText([customerMessage, customerSummary].filter(Boolean).join(" "));
+  const [empatheticSamples, flirtflipSamples, realSamples] = await Promise.all([
+    getEmpatheticDialogueSamples(env, 30, { split: "all" }),
+    getFlirtFlipSamples(env, 30, { datasetKind: "all", recordType: "all" }),
+    getTrainingSamples(env, chatUserId, 20, "labeled"),
+  ]);
+
+  const empathetic = selectTopReferenceSamples(
+    empatheticSamples,
+    queryText,
+    REFERENCE_SOURCE_TARGETS[0].limit,
+    (sample) => `${sample.prompt || ""} ${sample.utterance || ""} ${sample.context || ""}`
+  ).map((sample) => buildReferenceExample({
+    source: "EmpatheticDialogues",
+    prompt: sample.prompt || "",
+    assistant: sample.utterance || "",
+    note: sample.context || "",
+  }));
+
+  const flirtflip = selectTopReferenceSamples(
+    flirtflipSamples,
+    queryText,
+    REFERENCE_SOURCE_TARGETS[1].limit,
+    (sample) => `${sample.preview?.prompt || ""} ${sample.preview?.chosen || ""} ${sample.preview?.assistant || ""} ${sample.scenario || ""}`
+  ).map((sample) => buildReferenceExample({
+    source: "FlirtFlip",
+    prompt: sample.preview?.prompt || sample.preview?.user || "",
+    assistant: sample.preview?.chosen || sample.preview?.assistant || "",
+    note: sample.scenario || sample.sampleIntent || "",
+  }));
+
+  const real = selectTopReferenceSamples(
+    realSamples,
+    queryText,
+    REFERENCE_SOURCE_TARGETS[2].limit,
+    (sample) => `${sample.customerInput || ""} ${sample.assistantOutput || ""} ${sample.scenarioClass || ""} ${sample.sampleIntent || ""}`
+  ).map((sample) => buildReferenceExample({
+    source: "RealChat",
+    prompt: sample.customerInput || "",
+    assistant: sample.assistantOutput || "",
+    note: sample.scenarioClass || sample.sampleIntent || "",
+  }));
+
+  return [...empathetic, ...flirtflip, ...real];
+}
+
 export async function loadMemoryBundle(env, { chatUserId, customer, relationshipStage, customerMessage, embeddingFn }) {
-  const [facts, relationshipState, latestSummary, vectorMemories] = await Promise.all([
+  const [facts, relationshipState, latestSummary, vectorMemories, referenceExamples] = await Promise.all([
     getActiveMemoryFacts(env, chatUserId, MEMORY_FACT_LIMIT),
     getRelationshipState(env, chatUserId, relationshipStage),
     getLatestConversationSummary(env, chatUserId),
@@ -1918,6 +2019,11 @@ export async function loadMemoryBundle(env, { chatUserId, customer, relationship
       limit: 8,
       embeddingFn,
     }),
+    getReferenceExamples(env, {
+      chatUserId,
+      customerMessage,
+      customerSummary: customer?.summary || "",
+    }),
   ]);
 
   return {
@@ -1925,6 +2031,7 @@ export async function loadMemoryBundle(env, { chatUserId, customer, relationship
     relationshipState,
     summary: latestSummary || customer?.summary || "",
     vectorMemories,
+    referenceExamples,
   };
 }
 

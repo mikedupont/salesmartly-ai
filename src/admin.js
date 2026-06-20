@@ -11,6 +11,7 @@ import {
 } from "./db.js";
 import { buildDialogueStrategy, formatDialogueStrategy } from "./dialogue.js";
 import { buildConversationContext } from "./context.js";
+import { formatMemoryFacts, formatReferenceExamples, formatRelationshipState, formatVectorMemories } from "./memory.js";
 
 export function requireAdminKey(env, request, url) {
   const key = cleanText(url.searchParams.get("key") || request.headers.get("x-admin-key") || "");
@@ -1198,16 +1199,14 @@ export async function buildMemoryDebugResponse(env, { chatUserId, query, embeddi
     customerSummary: latestSummary || customer?.summary || "",
     memoryFacts: activeFacts,
     vectorMemories,
+    referenceExamples: bundle.referenceExamples || [],
     relationshipState,
     recentMessages,
     formatRecentConversation: (messages) => (messages || []).map((message) => `${message.role}: ${message.content}`).join("\n"),
-    formatMemoryFacts: (facts) => (facts || []).map((fact) => `- ${fact.key}: ${fact.value} (confidence ${Number(fact.confidence || 0).toFixed(2)})`).join("\n"),
-    formatVectorMemories: (memories) => (memories || []).map((memory) => `- ${memory.text} (similarity ${Number(memory.similarity || 0).toFixed(2)})`).join("\n"),
-    formatRelationshipState: (state) => [
-      `- stage: ${state?.stage || "new"}`,
-      `- trust: ${Number(state?.trust || 0).toFixed(2)}`,
-      `- intimacy: ${Number(state?.intimacy || 0).toFixed(2)}`,
-    ].join("\n"),
+    formatMemoryFacts,
+    formatVectorMemories,
+    formatReferenceExamples,
+    formatRelationshipState,
   });
   const facts = includeInactiveFacts
     ? factHistory

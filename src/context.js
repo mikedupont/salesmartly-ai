@@ -11,11 +11,13 @@ export function buildConversationContext({
   customerSummary,
   memoryFacts = [],
   vectorMemories = [],
+  referenceExamples = [],
   relationshipState = {},
   recentMessages = [],
   formatRecentConversation,
   formatMemoryFacts,
   formatVectorMemories,
+  formatReferenceExamples,
   formatRelationshipState,
 }) {
   const persona = buildPersonaContext();
@@ -23,8 +25,10 @@ export function buildConversationContext({
     customerSummary,
     memoryFacts,
     vectorMemories,
+    referenceExamples,
     formatMemoryFacts,
     formatVectorMemories,
+    formatReferenceExamples,
   });
   const policy = buildRelationshipContext({
     customerName,
