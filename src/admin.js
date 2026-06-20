@@ -277,9 +277,8 @@ export function renderAdminPage() {
       <div class="row" style="margin-top:12px;">
         <button id="exportSft" class="secondary">导出 SFT JSONL</button>
         <button id="exportDpo" class="secondary">导出 DPO JSONL</button>
-        <button id="runAutoTraining" class="secondary">自动训练</button>
       </div>
-      <div class="small" style="margin-top:8px;">导出会根据当前 chat_user_id 生成 JSONL，自动训练会按线上配置把公开数据和真实数据自动打包并尝试触发外部训练器。</div>
+      <div class="small" style="margin-top:8px;">导出会根据当前 chat_user_id 生成 JSONL，方便后续训练脚本直接消费。</div>
       <div style="height: 12px;"></div>
       <div id="trainingSamples" class="list"></div>
     </div>
@@ -1032,32 +1031,6 @@ export function renderAdminPage() {
       URL.revokeObjectURL(link.href);
     }
 
-    async function runAutoTraining() {
-      syncStorage();
-      const key = $("key").value.trim();
-      const res = await fetch(location.origin + "/admin/training/auto", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": key,
-        },
-        body: JSON.stringify({
-          force: true,
-        }),
-      });
-      const data = await res.json().catch(() => ({ ok: false, error: "Invalid JSON" }));
-      if (!res.ok || !data.ok) {
-        alert("自动训练失败: " + (data.error || res.status));
-        return;
-      }
-      const status = data.triggered ? "已触发训练器" : data.prepared ? "已准备训练包" : data.skipped ? "已跳过" : "完成";
-      const counts = data.bundle?.recordCounts
-        ? " · " + data.bundle.recordCounts.total + " 条记录"
-        : "";
-      alert("自动训练" + status + counts);
-      await loadMemory();
-    }
-
     async function syncEmpatheticOnline() {
       syncStorage();
       const key = $("key").value.trim();
@@ -1319,7 +1292,6 @@ export function renderAdminPage() {
     $("empatheticImportMode").addEventListener("change", syncStorage);
     $("exportSft").addEventListener("click", () => exportTraining("sft"));
     $("exportDpo").addEventListener("click", () => exportTraining("dpo"));
-    $("runAutoTraining").addEventListener("click", runAutoTraining);
     $("exportFlirtflip").addEventListener("click", exportFlirtflip);
     $("importFlirtflip").addEventListener("click", importFlirtflip);
     $("loadFlirtflip").addEventListener("click", loadMemory);

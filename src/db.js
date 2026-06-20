@@ -375,14 +375,6 @@ export async function initDb(env) {
     ON training_feedback(chat_user_id, created_at);
   `).run();
 
-  await env.DB.prepare(`
-    CREATE TABLE IF NOT EXISTS training_automation_state (
-      state_key TEXT PRIMARY KEY,
-      state_value TEXT DEFAULT '',
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-  `).run();
-
 }
 
 export async function upsertCustomer({
@@ -1638,37 +1630,6 @@ export async function getTrainingSamplesForExport(env, { limit = 1000, status = 
     .all();
 
   return (result.results || []).map(mapTrainingSampleRow);
-}
-
-export async function getAutomationState(env, stateKey) {
-  const row = await env.DB.prepare(`
-    SELECT state_value
-    FROM training_automation_state
-    WHERE state_key = ?
-    LIMIT 1;
-  `)
-    .bind(cleanText(stateKey || ""))
-    .first();
-
-  return cleanText(row?.state_value || "");
-}
-
-export async function setAutomationState(env, stateKey, stateValue) {
-  const key = cleanText(stateKey || "");
-  if (!key) return null;
-  const value = cleanText(stateValue || "");
-
-  await env.DB.prepare(`
-    INSERT INTO training_automation_state (state_key, state_value, updated_at)
-    VALUES (?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(state_key) DO UPDATE SET
-      state_value = excluded.state_value,
-      updated_at = CURRENT_TIMESTAMP;
-  `)
-    .bind(key, value)
-    .run();
-
-  return { stateKey: key, stateValue: value };
 }
 
 export async function getTrainingStats(env, chatUserId) {

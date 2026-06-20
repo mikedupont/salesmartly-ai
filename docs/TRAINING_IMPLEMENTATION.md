@@ -460,15 +460,13 @@ When comparing candidates, prefer the reply that is:
 
 ## 3. JSONL Export Structure
 
-The current Worker can export and auto-package training data through:
+The current Worker can export training data through:
 
 - `GET /admin/training/export?dataset=sft&format=jsonl`
 - `GET /admin/training/export?dataset=dpo&format=jsonl`
 - `GET /admin/training/export?dataset=raw&format=jsonl`
 - `POST /admin/training/annotate`
 - `GET /admin/training?status=unlabeled`
-- `GET /admin/training/auto`
-- `POST /admin/training/auto`
 
 The export endpoint also accepts `scenario_class`:
 
@@ -499,52 +497,6 @@ The admin page also includes a small annotation panel:
 - default view can focus on unlabeled samples so you can label them in sequence
 
 For operator-maintained personal memories, use the separate memory facts panel in `/admin/memory/facts` rather than the training export flow. This is the preferred workflow when you want to keep the chosen / rejected pairs clean.
-
-### 3.0.1 Full automatic mode
-
-The repo now supports a fully automatic packaging flow, but the actual model update still happens in an external trainer.
-
-Automatic flow:
-
-1. the Worker runs on schedule
-2. it collects training samples from three sources
-   - `EmpatheticDialogues`
-   - `FlirtFlip`
-   - real product conversations
-3. it packages them with the default mix
-   - `EmpatheticDialogues`: `60%`
-   - `FlirtFlip`: `30%`
-   - real chat: `10%`
-4. it hashes the bundle
-5. if the hash changed, it POSTs the bundle to `TRAINING_TRIGGER_URL`
-6. the external trainer consumes the payload and starts the actual training job
-7. the Worker stores the last successful hash in D1 so repeated schedules do not retrigger unchanged data
-
-If `TRAINING_TRIGGER_URL` is not configured, the Worker still builds the bundle and keeps the prepared hash, but it will not call an external trainer.
-
-Relevant environment variables:
-
-- `TRAINING_AUTO_EXPORT=true`
-  - enables scheduled auto packaging
-- `TRAINING_AUTO_LIMIT=1000`
-  - total sample budget for one automatic bundle
-- `TRAINING_AUTO_STATUS=labeled`
-  - real chat export status filter
-- `TRAINING_AUTO_EMPATHETIC_RATIO=0.6`
-- `TRAINING_AUTO_FLIRTFLIP_RATIO=0.3`
-- `TRAINING_AUTO_REAL_RATIO=0.1`
-- `TRAINING_AUTO_SCENARIO_CLASSES=work_fatigue,light_flirt`
-  - optional scenario filter; leave empty to use all classes
-- `TRAINING_TRIGGER_URL=https://...`
-  - external trainer endpoint
-- `TRAINING_TRIGGER_TOKEN=...`
-  - optional bearer token sent to the trainer
-
-Manual operator flow still works:
-
-- use `GET /admin/training/auto` to preview the current automatic bundle
-- use `POST /admin/training/auto` to force a manual trigger
-- use `GET /admin/training/export` for single-user exports when you want to inspect or debug one chat in isolation
 
 ### 3.0 New export shape
 
@@ -800,4 +752,4 @@ This repository already has:
   - DPO: 40
 
 That means the project is no longer just a chatbot backend.
-It is already a data-producing system for future model alignment, and it can now auto-package those datasets into a training bundle without manual export each time.
+It is already a data-producing system for future model alignment.

@@ -47,8 +47,6 @@
 - 支持 `/admin/training/feedback` 偏好反馈写回
 - 支持 `/admin/training/annotate` 标注写回
 - 支持 `/admin/training/purge` 训练数据清空
-- 支持 `/admin/training/auto` 自动训练包预览 / 手动触发
-- 支持定时任务自动组合真实数据、FlirtFlip 和 EmpatheticDialogues
 - 支持 `/health` 监控快照
 - 已支持 FlirtFlip 线上查看 / 导入 / 导出
   - `/admin/flirtflip`
@@ -97,8 +95,6 @@
    - 后处理只做最后清理，不承担主逻辑
 
 如果你要继续按现在这条路线落地训练闭环，可以直接看 [`docs/TRAINING_IMPLEMENTATION.md`](docs/TRAINING_IMPLEMENTATION.md)。
-
-如果你要走“全自动版”，直接配置 `TRAINING_AUTO_EXPORT=true` 和 `TRAINING_TRIGGER_URL`，Worker 就会定时打包训练数据并自动推给外部训练器，不需要再手动导出。
 
 当前公开对话库已做过一次清理，当前总量是：
 
